@@ -6,9 +6,17 @@
 
 ## 项目定位
 
-帮助 AI 工程师准备 Agent / LLM 方向的技术面试：
+全链路求职辅导 Agent，覆盖从 JD 分析到面试复盘的完整闭环：
 
-- 输入面试题和你的回答 → 输出结构化诊断（评分 + 差距分析 + 改进建议）
+| 模块 | 能力 |
+|------|------|
+| **面试诊断** | 输入面试题 + 回答 → 评分 + 差距分析 + 改进建议 |
+| **JD 分析** | 贴入 JD → 技术栈提取 + 职级判断 + 面试准备重点 |
+| **简历优化** | 段落级诊断：量化度 / STAR 结构 / 关键词覆盖 |
+| **简历-JD 匹配** | 关键词覆盖率 + 缺失项 + 定向包装建议 |
+| **模拟面试** | 按维度 + 难度生成个性化题目序列 |
+| **实时面试模拟** | TTS 提问 → 实时缺陷检测 → 逐题反馈 → 总结报告 |
+
 - 内置 385+ 道真实面试题知识库（来自 zero2Agent 项目）
 - 支持"新手答 vs 高手答"对比、追问模拟、学习路径推荐
 
@@ -64,7 +72,8 @@ src/
 ├── query-engine/    # LLM 调用层（3 Provider + 重试 + 路由）
 │   └── providers/   # Claude / OpenAI / DeepSeek
 ├── tools/           # Tool 注册与执行
-│   └── builtin/     # 8 个内置工具
+│   └── builtin/     # 13 个内置工具
+├── realtime/        # 实时面试模拟（TTS + 缺陷检测）
 ├── context/         # 5 层上下文 + 3 级压缩
 ├── memory/          # 用户画像记忆
 ├── permission/      # 风险分级权限控制
@@ -81,7 +90,7 @@ knowledge/           # 面试题知识库（Markdown）
 ## 开发进度
 
 - [x] Query Engine（3 Provider + 统一 StreamEvent + 重试 + 路由）
-- [x] Tools（8 个内置工具 + Registry）
+- [x] Tools（13 个内置工具 + Registry）
 - [x] Permission（风险分级 + 审计日志）
 - [x] Context（5 层管理 + 3 级压缩）
 - [x] Session（状态机 + Checkpoint/Rewind）
@@ -91,10 +100,13 @@ knowledge/           # 面试题知识库（Markdown）
 - [x] Knowledge Base（Markdown 解析 + FTS5 双通道检索）
 - [x] Hooks（pre-tool / post-tool 管线 + 2 个内置 hook）
 - [x] Command 解析器（5 个内置命令）
-- [x] Sub-agent 运行时（并发池 + 4 角色）
+- [x] Sub-agent 运行时（并发池 + 7 角色）
 - [x] DB 持久化（SQLite WAL + 完整 schema）
+- [x] JD 分析 + 简历优化 + 简历-JD 匹配
+- [x] 模拟面试（题目生成 + 维度/难度控制）
+- [x] 实时面试模拟（TTS + 8 种缺陷规则引擎 + 会话状态机）
 - [x] Web UI（Next.js 14 + SSE 流式 + 暗色主题）
-- [x] 测试（9 个测试文件 / 38 个用例全通过）
+- [x] 测试（10 个测试文件 / 50 个用例全通过）
 
 ## 设计文档
 
