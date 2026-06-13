@@ -1,14 +1,10 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=180&section=header&text=OfferPilot&fontSize=42&fontColor=fff&animation=fadeIn&fontAlignY=36&desc=🚀%20AI%20全链路求职辅导%20Agent&descSize=16&descAlignY=56" />
-  <source media="(prefers-color-scheme: light)" srcset="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=180&section=header&text=OfferPilot&fontSize=42&fontColor=222&animation=fadeIn&fontAlignY=36&desc=🚀%20AI%20全链路求职辅导%20Agent&descSize=16&descAlignY=56&descColor=444" />
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=180&section=header&text=OfferPilot&fontSize=42&fontColor=fff&animation=fadeIn&fontAlignY=36&desc=🚀%20AI%20全链路求职辅导%20Agent&descSize=16&descAlignY=56" width="100%" alt="OfferPilot" />
-</picture>
+# OfferPilot
 
 **纯手写 Agent Loop，不依赖 LangChain / LangGraph，完整实现 10 层 Harness 工程架构**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE) [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org) [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org) [![Claude](https://img.shields.io/badge/Claude-API-cc785c?style=flat-square&logo=anthropic&logoColor=white)](https://anthropic.com) [![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=flat-square&logo=next.js&logoColor=white)](https://nextjs.org) [![SQLite](https://img.shields.io/badge/SQLite-FTS5-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://sqlite.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE) [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-5.5+-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/) [![Claude API](https://img.shields.io/badge/Claude-API-FF6B35?style=flat-square)](https://console.anthropic.com/) [![Next.js](https://img.shields.io/badge/Next.js-14+-000000?style=flat-square&logo=next.js&logoColor=white)](https://nextjs.org/)
 
 [快速开始](#-快速开始) · [功能模块](#-功能模块) · [架构设计](#-架构设计) · [与 zero2Agent 的关系](#-与-zero2agent-的关系)
 
@@ -20,7 +16,7 @@
 
 OfferPilot 是 [zero2Agent](https://github.com/ranxi2001/zero2Agent) 教程的**毕业实战项目**——将教程中学到的 Agent 工程知识，落地为一个完整可用的产品。
 
-反过来，zero2Agent 教程体系也是本项目的**知识数据库**：385+ 道真实大厂面试题、Agent 工程原理深度拆解、框架对比分析，全部作为 OfferPilot 的检索知识源。
+反过来，zero2Agent 教程体系也是本项目的**知识数据库**：385+ 道真实大厂面试题、Agent 工程原理深度拆解、框架对比分析，全部作为 OfferPilot 的检索知识库。
 
 > **教程孵化项目，项目反哺教程** —— 学以致用的完整闭环。
 
