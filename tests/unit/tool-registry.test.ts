@@ -6,7 +6,7 @@ describe('ToolRegistry', () => {
 
   it('should register all builtin tools', () => {
     const schemas = registry.listSchemas();
-    expect(schemas.length).toBe(8);
+    expect(schemas.length).toBe(13);
   });
 
   it('should find tools by name', () => {

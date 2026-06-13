@@ -1,4 +1,11 @@
-export type SubAgentRole = 'diagnostician' | 'interviewer' | 'researcher' | 'reporter';
+export type SubAgentRole =
+  | 'diagnostician'
+  | 'interviewer'
+  | 'researcher'
+  | 'reporter'
+  | 'jd-analyst'
+  | 'resume-optimizer'
+  | 'gap-analyzer';
 
 export interface SubAgentConfig {
   id: string;

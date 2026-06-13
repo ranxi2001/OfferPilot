@@ -53,6 +53,53 @@ export class MockProvider implements LLMProvider {
 
     // Decide whether to call a tool
     if (hasTools && tools?.length) {
+      // JD analysis
+      if ((lower.includes('jd') || lower.includes('职位') || lower.includes('岗位')) &&
+          userContent.length > 100 && (lower.includes('分析') || lower.includes('要求') || lower.includes('职责'))) {
+        return {
+          type: 'tool_call',
+          toolName: 'analyze_jd',
+          toolInput: { jdText: userContent },
+        };
+      }
+
+      // Resume + JD matching
+      if ((lower.includes('简历') || lower.includes('resume')) && (lower.includes('jd') || lower.includes('匹配') || lower.includes('岗位'))) {
+        return {
+          type: 'tool_call',
+          toolName: 'match_resume_jd',
+          toolInput: { resumeText: userContent, jdText: userContent },
+        };
+      }
+
+      // Resume optimization
+      if ((lower.includes('简历') || lower.includes('resume')) && (lower.includes('优化') || lower.includes('修改') || lower.includes('改'))) {
+        return {
+          type: 'tool_call',
+          toolName: 'optimize_resume',
+          toolInput: { section: 'full', content: userContent },
+        };
+      }
+
+      // Realtime interview simulation
+      if (lower.includes('实时面试') || lower.includes('面试模拟') || lower.includes('模拟开始') || lower.includes('开始模拟')) {
+        return {
+          type: 'tool_call',
+          toolName: 'realtime_interview',
+          toolInput: { action: 'start' },
+        };
+      }
+
+      // Mock interview (question generation)
+      if (lower.includes('模拟面试') || lower.includes('mock interview') || lower.includes('出题')) {
+        return {
+          type: 'tool_call',
+          toolName: 'mock_interview',
+          toolInput: { dimension: 'mixed', difficulty: 'medium', count: 5 },
+        };
+      }
+
+      // Interview diagnosis
       if (lower.includes('诊断') || lower.includes('题目') || lower.includes('我的回答')) {
         const question = this.extractQuestion(userContent);
         const answer = this.extractAnswer(userContent);
@@ -93,12 +140,14 @@ export class MockProvider implements LLMProvider {
     const lower = input.toLowerCase();
 
     if (lower.includes('你好') || lower.includes('hello') || lower.includes('hi')) {
-      return `你好！我是面试诊断 Agent，专注于 AI Agent / LLM 工程方向的面试辅导。
+      return `你好！我是 OfferPilot，你的全链路求职辅导 Agent。
 
-你可以：
-1. 直接输入一道面试题 + 你的回答，我会给出诊断
-2. 输入 /dimensions 查看所有考察维度
-3. 让我模拟面试官向你追问
+我可以帮你：
+1. **JD 分析** — 贴入职位描述，我帮你拆解要求和准备重点
+2. **简历优化** — 贴入简历，我给出量化、结构、关键词优化建议
+3. **简历-JD 匹配** — 找出差距项和包装方向
+4. **面试诊断** — 输入面试题 + 你的回答，输出评分和改进建议
+5. **模拟面试** — 生成个性化面试题序列
 
 试试看，输入一道你想练习的题目吧。`;
     }
@@ -139,9 +188,93 @@ export class MockProvider implements LLMProvider {
         const qs = data.followups.map((f: string, i: number) => `${i + 1}. ${f}`).join('\n');
         return `## 面试官可能的追问\n\n${qs}\n\n${data.hint ? `> 💡 ${data.hint}` : ''}\n\n你要试着回答其中一个吗？`;
       }
+
+      // Handle analyze_jd result
+      if (data.techStack) {
+        let res = `## JD 分析结果\n\n`;
+        res += `**职级判断**：${data.summary?.level ?? '未知'} | **经验要求**：${data.summary?.yearsRequired ?? '未明确'}年 | **学历**：${data.summary?.education ?? '未明确'}\n\n`;
+        if (data.techStack.required?.length) res += `### 必备技术栈\n${data.techStack.required.join('、')}\n\n`;
+        if (data.techStack.niceToHave?.length) res += `### 加分项\n${data.techStack.niceToHave.join('、')}\n\n`;
+        if (data.interviewPrep?.length) {
+          res += `### 面试准备重点\n${data.interviewPrep.map((p: string, i: number) => `${i + 1}. ${p}`).join('\n')}\n\n`;
+        }
+        if (data.keyInsights?.length) {
+          res += `### 关键洞察\n${data.keyInsights.map((k: string) => `- ${k}`).join('\n')}\n`;
+        }
+        res += `\n---\n要我帮你把简历和这个 JD 做匹配分析吗？`;
+        return res;
+      }
+
+      // Handle match_resume_jd result
+      if (data.matchRate !== undefined && data.matched) {
+        let res = `## 简历-JD 匹配分析\n\n`;
+        res += `### 匹配度：${data.matchRate}\n\n`;
+        res += `**${data.verdict}**\n\n`;
+        if (data.matched.length) res += `✅ 匹配项：${data.matched.slice(0, 5).join('、')}\n\n`;
+        if (data.missing.length) res += `❌ 缺失项：${data.missing.slice(0, 5).join('、')}\n\n`;
+        if (data.suggestions?.length) {
+          res += `### 优化建议\n${data.suggestions.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n')}\n`;
+        }
+        return res;
+      }
+
+      // Handle optimize_resume result
+      if (data.diagnosis && data.principles) {
+        let res = `## 简历优化建议\n\n`;
+        res += `**段落评分**：${data.diagnosis.score}/10\n\n`;
+        if (data.diagnosis.issues?.length) {
+          res += `### 发现的问题\n${data.diagnosis.issues.map((i: string) => `- ${i}`).join('\n')}\n\n`;
+        }
+        if (data.suggestions?.length) {
+          res += `### 改进建议\n${data.suggestions.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n')}\n\n`;
+        }
+        if (data.rewriteExample) {
+          res += `### 改写示例\n\`\`\`\n${data.rewriteExample}\n\`\`\`\n\n`;
+        }
+        res += `### 写作原则\n${data.principles.map((p: string) => `- ${p}`).join('\n')}`;
+        return res;
+      }
+
+      // Handle realtime_interview result
+      if (data.sessionId && data.ttsText) {
+        let res = '';
+        if (data.state === 'questioning') {
+          res = `## 🎙️ 面试模拟\n\n**面试官提问**：${data.currentQuestion}\n\n进度：${data.progress?.asked ?? 0}/${data.progress?.total ?? 5}\n\n---\n请用文字输入你的回答，我会实时分析缺陷。`;
+        } else if (data.state === 'analyzed') {
+          res = `## 📊 实时缺陷分析\n\n${data.summary}\n\n`;
+          if (data.defects?.length) {
+            res += `| 类型 | 严重度 | 建议 |\n|------|--------|------|\n`;
+            for (const d of data.defects) {
+              res += `| ${d.type} | ${d.severity} | ${d.suggestion} |\n`;
+            }
+          }
+          res += `\n输入"下一题"继续，或"总结"查看报告。`;
+        } else if (data.state === 'finished') {
+          res = `面试模拟已完成全部题目。输入"总结"获取综合评价报告。`;
+        } else if (data.overallScore !== undefined) {
+          res = `## 📋 面试模拟总结\n\n`;
+          res += `**综合评分**：${data.overallScore}/10\n`;
+          res += `**总缺陷数**：${data.totalDefects}\n\n`;
+          if (data.topIssues?.length) res += `**主要问题**：${data.topIssues.join('、')}\n`;
+        }
+        return res;
+      }
+
+      // Handle mock_interview result
+      if (data.questions && data.totalQuestions) {
+        let res = `## 模拟面试题（${data.totalQuestions} 道）\n\n`;
+        for (const q of data.questions) {
+          res += `**Q${q.index}**（${q.dimension} / ${q.difficulty}）：${q.question}\n\n`;
+        }
+        if (data.tips?.length) {
+          res += `---\n### 作答技巧\n${data.tips.map((t: string) => `- ${t}`).join('\n')}\n`;
+        }
+        res += `\n选一道开始作答，我会实时诊断你的回答。`;
+        return res;
+      }
     } catch {}
 
-    return `已处理完成。你还想继续练习其他题目吗？`;
+    return `已处理完成。你还想继续吗？可以贴入 JD、简历，或者直接开始面试练习。`;
   }
 
   private buildDiagnosisResponse(data: any, messages: Message[]): string {

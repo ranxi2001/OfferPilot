@@ -8,6 +8,9 @@ const ROLE_PROMPTS: Record<string, string> = {
   interviewer: `你是模拟面试官子 Agent。根据候选人的回答，生成有针对性的追问。追问应该逐步深入，检验真实理解深度。`,
   researcher: `你是知识研究子 Agent。负责从知识库中查找相关参考资料，整合多个来源的信息，为诊断提供依据。`,
   reporter: `你是报告生成子 Agent。负责将诊断结果、评分和建议整理成结构化的会话报告。`,
+  'jd-analyst': `你是 JD 分析子 Agent。解析职位描述，提取核心技术要求、团队背景、职级信号和面试准备方向。输出结构化分析。`,
+  'resume-optimizer': `你是简历优化子 Agent。基于目标岗位，对简历各段落提出改进建议：量化表达、STAR 结构、关键词补充、信息密度优化。`,
+  'gap-analyzer': `你是差距分析子 Agent。对比简历和 JD，找出技能匹配项和差距项，生成针对性的补强方案和面试准备策略。`,
 };
 
 export class SubAgentRuntime {
