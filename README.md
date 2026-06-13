@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=180&section=header&text=OfferPilot&fontSize=42&fontColor=fff&animation=fadeIn&fontAlignY=36&desc=🚀%20AI%20全链路求职辅导%20Agent&descSize=16&descAlignY=56" />
-  <source media="(prefers-color-scheme: light)" srcset="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=180&section=header&text=OfferPilot&fontSize=42&fontColor=fff&animation=fadeIn&fontAlignY=36&desc=🚀%20AI%20全链路求职辅导%20Agent&descSize=16&descAlignY=56" />
+  <source media="(prefers-color-scheme: light)" srcset="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=180&section=header&text=OfferPilot&fontSize=42&fontColor=222&animation=fadeIn&fontAlignY=36&desc=🚀%20AI%20全链路求职辅导%20Agent&descSize=16&descAlignY=56&descColor=444" />
   <img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=180&section=header&text=OfferPilot&fontSize=42&fontColor=fff&animation=fadeIn&fontAlignY=36&desc=🚀%20AI%20全链路求职辅导%20Agent&descSize=16&descAlignY=56" width="100%" alt="OfferPilot" />
 </picture>
 
