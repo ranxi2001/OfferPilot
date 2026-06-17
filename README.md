@@ -1,199 +1,262 @@
-<div align="center">
+# OfferPilot
 
-<img src="./assets/offerpilot-banner.jpg" alt="OfferPilot - AI Interview Diagnosis Agent" width="100%" />
+[English](./README-EN.md)
 
-**纯手写 Agent Loop，不依赖 LangChain / LangGraph，完整实现 10 层 Harness 工程架构**
+OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。项目采用手写 Agent Loop，不依赖 LangChain / LangGraph，目标是把 Agent 工程里的模型调用、工具执行、上下文管理、会话状态、子 Agent、Web 流式交互和语音诊断串成一个完整产品原型。
 
-[![CI](https://github.com/ranxi2001/OfferPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/ranxi2001/OfferPilot/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE) [![Node.js](https://img.shields.io/badge/Node.js-20+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-5.5+-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/) [![Claude API](https://img.shields.io/badge/Claude-API-FF6B35?style=flat-square)](https://console.anthropic.com/) [![Next.js](https://img.shields.io/badge/Next.js-14+-000000?style=flat-square&logo=next.js&logoColor=white)](https://nextjs.org/)
+项目同时也是 `zero2Agent` 学习体系的实战项目：把教程里的 Agent 工程知识、面试题库和架构拆解落地成可运行系统。
 
-[快速开始](#-快速开始) · [功能模块](#-功能模块) · [架构设计](#-架构设计) · [与 zero2Agent 的关系](#-与-zero2agent-的关系)
+![OfferPilot banner](./assets/offerpilot-banner.jpg)
 
-</div>
+## Demo
 
----
+### 录音回答诊断
 
-## 📖 项目简介
+前端支持直接录音或上传音频。系统会把录音转成 WAV，调用 Mimo ASR 转写，再把转写文本送入现有面试诊断 Agent。录音会保留在页面里，方便回放和下载复测。
 
-OfferPilot 是 [zero2Agent](https://github.com/ranxi2001/zero2Agent) 教程的**毕业实战项目**——将教程中学到的 Agent 工程知识，落地为一个完整可用的产品。
+![录音诊断 Demo](./assets/demo1.png)
 
-反过来，zero2Agent 教程体系也是本项目的**知识数据库**：385+ 道真实大厂面试题、Agent 工程原理深度拆解、框架对比分析，全部作为 OfferPilot 的检索知识库。
+### 思维链处理卡片
 
-> **教程孵化项目，项目反哺教程** —— 学以致用的完整闭环。
+录音处理不会再伪装成重复的用户消息，而是单独展示为“思维链 / 处理流程”卡片。卡片会展示转写状态、诊断状态、录音播放器、录音下载和转写文本。
 
----
+![思维链处理卡片](./assets/cot.png)
 
-## ✨ 功能模块
+### Markdown 诊断报告
+
+诊断结果支持 GitHub-Flavored Markdown，包含表格渲染。每条回答尾部提供复制和保存 `.md` 文档的快捷操作。
+
+![Markdown 诊断报告](./assets/demo2.png)
+
+导出的示例报告见：[demo.md](./assets/demo.md)。
+
+## 今日更新记录
+
+- 打通真实 API 测试链路，CLI 和 API Server 启动时自动读取 `.env`。
+- 增加 OpenAI 兼容模型配置：
+  - `OPENAI_API_KEY`
+  - `OPENAI_BASE_URL`
+  - `OPENAI_MODEL`
+- 默认聊天模型调整为 `gpt-5.5`。
+- 接入 Mimo 音频能力：
+  - ASR：`mimo-v2.5-asr`
+  - TTS：`mimo-v2.5-tts`
+  - 官方 Base URL：`https://api.xiaomimimo.com/v1`
+- 新增后端音频 API：
+  - `POST /api/transcribe`
+  - `POST /api/tts`
+- 新增前端代理路由：
+  - `web/src/app/api/transcribe`
+  - `web/src/app/api/tts`
+- 浏览器录音改为导出 WAV，适配 Mimo ASR 的 `wav/mp3` 要求。
+- 新增录音上传诊断流程。
+- 新增录音诊断的思维链 / 处理流程卡片。
+- 支持录音回放和录音下载。
+- 使用 `remark-gfm` 支持 Markdown 表格渲染。
+- Assistant 回答尾部新增复制和保存 `.md`。
+- 修复 diagnostician 子 Agent 递归调用工具导致诊断卡住的问题。
+- Docker Compose 透传 OpenAI 兼容模型和 Mimo 音频配置。
+
+## 功能模块
 
 | 模块 | 能力 | 状态 |
-|:---:|:---|:---:|
-| 🎯 **面试诊断** | 输入面试题 + 回答 → 评分 + 差距分析 + 改进建议 | ✅ |
-| 📋 **JD 分析** | 贴入 JD → 技术栈提取 + 职级判断 + 面试准备重点 | ✅ |
-| 📝 **简历优化** | 段落级诊断：量化度 / STAR 结构 / 关键词覆盖 | ✅ |
-| 🔗 **简历-JD 匹配** | 关键词覆盖率 + 缺失项 + 定向包装建议 | ✅ |
-| 🎲 **模拟面试** | 按维度 + 难度生成个性化题目序列 | ✅ |
-| 🎙️ **实时面试模拟** | TTS 提问 → 实时缺陷检测 → 逐题反馈 → 总结报告 | ✅ |
+| --- | --- | --- |
+| 面试诊断 | 输入问题和回答，输出评分、差距、改进建议 | 已完成 |
+| 录音回答诊断 | 录音/上传音频 -> ASR -> 诊断 | 已完成 |
+| Markdown 报告 | 表格渲染、复制、保存 `.md` | 已完成 |
+| JD 分析 | 提取技术栈、职级信号、准备重点 | 已完成 |
+| 简历优化 | STAR、量化、关键词、改写建议 | 已完成 |
+| 简历-JD 匹配 | 覆盖率、缺失项、定向包装 | 已完成 |
+| 模拟面试 | 生成个性化面试题序列 | 已完成 |
+| 实时面试引擎 | TTS 文本、缺陷规则、会话报告 | 后端骨架 |
+| 多 Agent 协作 | 专家子 Agent + 并发池 | 已完成 |
+| 知识检索 | SQLite FTS5 + 可选 embedding | 已完成 |
 
----
+## 架构概览
 
-## 🚀 快速开始
-
-```bash
-# 克隆项目
-git clone https://github.com/ranxi2001/OfferPilot.git
-cd OfferPilot
-
-# 安装依赖
-npm install
-
-# 配置 API Key（至少配一个）
-cp .env.example .env
-# 编辑 .env 填入你的 key
-
-# 启动交互式诊断
-npm start
-
-# 单次诊断
-npm run diagnose -- -q "Agent 的 ReAct 循环是什么" -a "就是让模型思考然后行动"
-
-# 构建知识库索引
-npm run build-kb
-
-# 启动 API 服务器（供 Web UI 调用）
-npm run serve
-
-# 启动 Web UI
-cd web && npm install && npm run dev
-```
-
-### Docker 部署
-
-```bash
-# 配置环境变量
-echo "ANTHROPIC_API_KEY=sk-xxx" > .env
-echo "OFFERPILOT_API_KEY=your-secret" >> .env
-
-# 一键启动 API + Web
-docker compose up -d
-# API: http://localhost:3001  Web: http://localhost:3000
-```
-
----
-
-## 🏗️ 架构设计
-
-```
-┌───────────────────────────────────────────────┐
-│             🔄 Agent Loop                     │
-├───────────────────────────────────────────────┤
-│  🔍 Query Engine  │  📦 Context  │  🧠 Memory │
-├───────────────────────────────────────────────┤
-│  🛠️ Tools  │  ⚡ Skills  │  🔒 Permission     │
-├───────────────────────────────────────────────┤
-│  💾 Session  │  ⌨️ Command  │  🪝 Hook        │
-├───────────────────────────────────────────────┤
-│            🤖 Sub-agent Runtime               │
-└───────────────────────────────────────────────┘
-```
-
-### 技术栈
-
-| 层级 | 选型 |
-|:---|:---|
-| 🧠 LLM 调用 | `@anthropic-ai/sdk` + `openai` SDK（直接调用，无框架） |
-| 🤖 支持模型 | Claude / GPT-4o / DeepSeek |
-| ⚙️ 运行时 | Node.js + TypeScript (ES2022) |
-| 💾 数据库 | better-sqlite3（会话 / 记忆 / 缓存） |
-| 🔍 知识检索 | SQLite FTS5 + OpenAI embedding 向量检索 |
-| 🖥️ 前端 | Next.js 14 + shadcn/ui + SSE 流式 |
-
----
-
-## 📁 目录结构
-
-```
+```text
 src/
-├── agent/           # Agent Loop 核心循环（abort/budget/并行 tool）
-├── query-engine/    # LLM 调用层（3 Provider + 重试 + 路由）
-│   └── providers/   # Claude / OpenAI / DeepSeek / Mock
-├── tools/           # Tool 注册与执行
-│   └── builtin/     # 14 个内置工具（含 dispatch_sub_agent）
-├── sub-agent/       # Sub-agent 运行时（并发池 + mini loop）
-├── realtime/        # 实时面试模拟（TTS + 缺陷检测）
-├── knowledge/       # 知识检索（FTS5 + embedding 向量）
-├── context/         # 5 层上下文 + LLM 摘要压缩
-├── memory/          # 用户画像记忆（SQLite 持久化）
-├── permission/      # 风险分级权限控制 + 用户确认
-├── session/         # 会话状态机 + Checkpoint（SQLite 持久化）
-├── command/         # 命令解析器
-├── hooks/           # Hook 管线（pre-tool / post-tool）
-├── db/              # SQLite 持久层
-├── logger.ts        # 结构化 JSON 日志
-└── server.ts        # HTTP API 服务器（SSE + 心跳 + Auth）
-knowledge/           # 面试题知识库（7 维度 Markdown）
-web/                 # Next.js Web UI
-tests/
-├── unit/            # 10 个单元测试文件
-└── e2e/             # 端到端测试
+  agent/            Agent Loop，负责工具执行和预算控制
+  query-engine/     Provider 路由、流式输出、重试、结果收集
+  query-engine/
+    providers/      Claude / OpenAI-compatible / DeepSeek / Mock
+  tools/            工具注册表和内置面试工具
+  sub-agent/        子 Agent 运行时和并发池
+  realtime/         ASR/TTS 集成与实时面试辅助模块
+  knowledge/        Markdown 知识解析、FTS 检索、embedding
+  context/          分层上下文和压缩
+  memory/           会话级记忆
+  permission/       工具风险控制和审计
+  session/          会话状态和消息历史
+  command/          CLI 命令解析
+  hooks/            工具前后置 Hook
+  db/               SQLite 持久化
+  server.ts         HTTP API Server + SSE
+
+web/
+  src/app/          Next.js App Router 页面和 API 代理
+  src/components/   Chat UI、侧边栏、输入框、消息渲染
 ```
 
----
+## 模型与音频配置
 
-## 🔗 与 zero2Agent 的关系
+推荐配置：
 
+- 文本模型：推荐使用 [ai.tosky.top](https://ai.tosky.top/) 提供的 OpenAI 兼容接口，默认模型为 `gpt-5.5`。
+- 语音模型：推荐使用 [小米 MiMo 开放平台](https://platform.xiaomimimo.com?ref=6ENEDG) 的 MiMo V2.5 系列模型。
+  - ASR：`mimo-v2.5-asr`
+  - TTS：`mimo-v2.5-tts`
+  - TTS 成本参考：约 1 分钟 1 分钱。
+  - 邀请码：`6ENEDG`
+  - 注册链接：[https://platform.xiaomimimo.com?ref=6ENEDG](https://platform.xiaomimimo.com?ref=6ENEDG)
+  - 通过邀请码注册，双方各得 10 元 API 体验金，首单 9 折；体验金有效期 40 天。
+
+复制 `.env.example` 为 `.env`，按需填写 key。
+
+```env
+OPENAI_API_KEY=sk-...
+OPENAI_BASE_URL=https://api.ai.tosky.top/v1
+OPENAI_MODEL=gpt-5.5
+
+MIMO_API_KEY=sk-...
+MIMO_BASE_URL=https://api.xiaomimimo.com/v1
+MIMO_ASR_MODEL=mimo-v2.5-asr
+MIMO_TTS_MODEL=mimo-v2.5-tts
+
+ANTHROPIC_API_KEY=sk-ant-...
+DEEPSEEK_API_KEY=sk-...
 ```
-+---------------------------+           +---------------------------+
-|      zero2Agent           |           |       OfferPilot          |
-|        (Tutorial)         |           |    (Hands-on Project)     |
-+---------------------------+           +---------------------------+
-| Agent Engineering Theory  | --------> | Architecture Impl         |
-| Framework Deep Dive       | --------> | Hand-written, No Framework|
-| 385+ Interview Questions  | --------> | Knowledge Retrieval Source |
-| 12 Design Documents       | --------> | Layer-by-Layer Guide      |
-+---------------------------+           +---------------------------+
-              ^                                     |
-              |            Feedback Loop            |
-              +------------------------------------+
-                 - Validates tutorial correctness
-                 - Drives tutorial iteration
+
+说明：
+
+- 默认聊天模型是 `gpt-5.5`。
+- OpenAI 兼容模型走 `OPENAI_BASE_URL`。
+- Mimo ASR/TTS 使用官方 `https://api.xiaomimimo.com/v1`。
+- Mimo ASR 按官方文档通过 `/chat/completions` 的 `input_audio` 调用。
+- 浏览器录音会先编码成 WAV，再上传给后端转写。
+
+## 快速开始
+
+建议使用 Node.js 20 或 22。Windows 下 Node.js 24 可能触发 `better-sqlite3` 原生依赖重编译。
+
+```bash
+npm install
+cp .env.example .env
 ```
 
-| | [zero2Agent](https://github.com/ranxi2001/zero2Agent) | OfferPilot |
-|:---|:---|:---|
-| 🎯 定位 | Agent 工程教程体系 | 教程的毕业实战项目 |
-| 📚 内容 | 原理讲解 + 框架拆解 + 面试题深度解析 | 完整产品级 Agent 系统 |
-| 🔄 关系 | 提供知识库 & 设计文档 | 验证教程 & 驱动迭代 |
-| 🌐 地址 | [onefly.top/zero2Agent](https://onefly.top/zero2Agent) | 本仓库 |
+启动 API Server：
 
-**详细设计文档**（12 篇）见 👉 [zero2Agent/final-project](https://github.com/ranxi2001/zero2Agent/tree/main/final-project)
+```bash
+npm run serve
+```
 
----
+启动 Web UI：
 
-## 📊 项目特性
+```bash
+cd web
+npm install
+npm run dev
+```
 
-- 🔧 **纯手写 Agent Loop** — 不依赖任何 Agent 框架，支持 abort/budget/并行 tool 执行
-- 🏗️ **10 层 Harness 架构** — 工业级分层设计，每层职责清晰
-- 🔄 **多模型路由** — Claude / GPT-4o / DeepSeek 自动切换 + fallback
-- 🧠 **上下文压缩** — 5 层管理 + LLM 摘要压缩 + 实体提取
-- 🤖 **Sub-agent 运行时** — 并发池 + 7 种专业角色 + mini tool loop
-- 💾 **全链路持久化** — Session / Memory / 知识库均写入 SQLite
-- 🔍 **双通道知识检索** — FTS5 全文搜索 + embedding 向量检索
-- 🎙️ **实时语音面试** — TTS 提问 + 8 种缺陷规则引擎
-- 🌐 **Web UI + API** — Next.js 14 + SSE 流式 + API Key 认证 + 心跳
-- 🐳 **容器化部署** — Dockerfile + docker-compose 一键启动
-- ✅ **完整测试 + CI** — 11 个测试文件 / 55 个用例 + GitHub Actions
+打开：
 
----
+```text
+http://localhost:3000
+```
 
-## 📄 License
+健康检查：
 
-[MIT](LICENSE) © [ranxi2001](https://github.com/ranxi2001)
+```text
+http://localhost:3001/health
+```
 
----
+## CLI 使用
 
-<div align="center">
+交互式诊断：
 
-**如果觉得有帮助，请给个 ⭐ Star！**
+```bash
+npm start
+```
 
-[![Star History](https://img.shields.io/github/stars/ranxi2001/OfferPilot?style=social)](https://github.com/ranxi2001/OfferPilot)
+单次诊断：
 
-</div>
+```bash
+npm run diagnose -- -q "什么是 ReAct Agent？" -a "它会推理、调用工具、观察结果并继续迭代。"
+```
+
+构建知识库：
+
+```bash
+npm run build-kb
+```
+
+生成 embedding：
+
+```bash
+npm run embed
+```
+
+## Web 录音诊断流程
+
+1. 点击输入框左侧麦克风按钮。
+2. 说出面试回答。
+3. 再次点击停止录音。
+4. OfferPilot 在思维链卡片中保存录音。
+5. 浏览器上传 WAV 到 `/api/transcribe`。
+6. 后端调用 Mimo ASR。
+7. 转写文本展示在思维链卡片中。
+8. 转写文本进入面试诊断 Agent。
+9. 诊断结果支持复制或保存为 Markdown。
+
+也可以通过附件按钮上传已有音频文件。
+
+## Docker
+
+```bash
+docker compose up -d
+```
+
+服务地址：
+
+```text
+API: http://localhost:3001
+Web: http://localhost:3000
+```
+
+`docker-compose.yml` 已透传 OpenAI 兼容模型和 Mimo 音频相关环境变量。
+
+## 验证
+
+最近一次本地验证命令：
+
+```bash
+npm run build
+npm test -- --run
+cd web && npm run build
+```
+
+预期结果：
+
+```text
+11 个测试文件通过
+55 个测试用例通过
+Next.js 生产构建通过
+```
+
+## 与 zero2Agent 的关系
+
+OfferPilot 使用 zero2Agent 的知识体系作为面试知识来源，并把 Agent 工程思想落地为完整应用：
+
+```text
+zero2Agent 理论与面试知识
+        |
+        v
+OfferPilot 工程实现
+        |
+        v
+Agent Loop、工具、会话、记忆、Web UI、ASR 诊断
+```
+
+## License
+
+MIT

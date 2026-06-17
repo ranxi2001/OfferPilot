@@ -3,11 +3,14 @@ dist/
 data/
 uploads/
 .env
+runtime/
 .packs/
 .pack.conf
 *.bundle
 web/.next/
 web/node_modules/
+web/tsconfig.tsbuildinfo
+assets/*.wav
 
 # local-dev skill (contains credentials, not for git)
 .claude/skills/local-dev/

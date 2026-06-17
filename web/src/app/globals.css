@@ -42,6 +42,32 @@ body {
   margin: 0.25em 0;
 }
 
+.markdown-body table {
+  display: block;
+  width: 100%;
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid rgba(113, 113, 122, 0.65);
+  padding: 0.45rem 0.6rem;
+  vertical-align: top;
+}
+
+.markdown-body th {
+  background: rgba(99, 102, 241, 0.14);
+  color: #f4f4f5;
+  font-weight: 600;
+}
+
+.markdown-body td {
+  background: rgba(24, 24, 37, 0.6);
+}
+
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }

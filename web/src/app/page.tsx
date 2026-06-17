@@ -9,8 +9,9 @@ import { Header } from '@/components/Header';
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [model, setModel] = useState('claude');
+  const [model, setModel] = useState('gpt-5.5');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,13 +32,15 @@ export default function Home() {
     }
   }
 
-  async function sendMessage(content: string) {
+  async function sendMessage(content: string, opts?: { showUserMessage?: boolean }) {
     if (!content.trim() || isStreaming) return;
 
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content };
-    setMessages((prev) => [...prev, userMsg]);
-    setIsStreaming(true);
+    if (opts?.showUserMessage !== false) {
+      const userMsg: Message = { id: Date.now().toString(), role: 'user', content };
+      setMessages((prev) => [...prev, userMsg]);
+    }
 
+    setIsStreaming(true);
     const assistantId = (Date.now() + 1).toString();
     setMessages((prev) => [...prev, { id: assistantId, role: 'assistant', content: '' }]);
 
@@ -63,29 +66,29 @@ export default function Home() {
         buffer = lines.pop() ?? '';
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') continue;
+          if (!line.startsWith('data: ')) continue;
 
-            try {
-              const event = JSON.parse(data);
-              if (event.type === 'text_delta') {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId ? { ...m, content: m.content + event.content } : m,
-                  ),
-                );
-              } else if (event.type === 'tool_call') {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId
-                      ? { ...m, toolCalls: [...(m.toolCalls ?? []), event.name] }
-                      : m,
-                  ),
-                );
-              }
-            } catch {}
-          }
+          const data = line.slice(6);
+          if (data === '[DONE]') continue;
+
+          try {
+            const event = JSON.parse(data);
+            if (event.type === 'text_delta') {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId ? { ...m, content: m.content + event.content } : m,
+                ),
+              );
+            } else if (event.type === 'tool_call') {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, toolCalls: [...(m.toolCalls ?? []), event.name] }
+                    : m,
+                ),
+              );
+            }
+          } catch {}
         }
       }
     } catch (err) {
@@ -98,6 +101,80 @@ export default function Home() {
       );
     } finally {
       setIsStreaming(false);
+    }
+  }
+
+  async function handleAudioAnswer(audio: Blob, fileName?: string) {
+    if (isStreaming || isTranscribing) return;
+
+    setIsTranscribing(true);
+    const pendingId = Date.now().toString();
+    const displayName = fileName ?? `recording-${Date.now()}.wav`;
+    const audioUrl = URL.createObjectURL(audio);
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: pendingId,
+        role: 'process',
+        content: '录音已保存，正在转写并准备诊断。',
+        status: '转写中',
+        audioUrl,
+        audioName: displayName,
+      },
+    ]);
+
+    try {
+      const response = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': audio.type || 'audio/wav',
+          'X-File-Name': displayName,
+        },
+        body: audio,
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? '转写失败');
+      }
+
+      const transcript = data.text as string;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === pendingId
+            ? {
+                ...m,
+                content: '录音转写完成，正在生成诊断。',
+                status: '诊断中',
+                transcript,
+              }
+            : m,
+        ),
+      );
+
+      await sendMessage(`请诊断我的这段录音回答：\n\n${transcript}`, { showUserMessage: false });
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === pendingId ? { ...m, content: '录音诊断完成。', status: '完成' } : m,
+        ),
+      );
+    } catch (err) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === pendingId
+            ? {
+                ...m,
+                content: `录音转写失败: ${(err as Error).message}`,
+                isError: true,
+                status: '失败',
+              }
+            : m,
+        ),
+      );
+    } finally {
+      setIsTranscribing(false);
     }
   }
 
@@ -115,12 +192,21 @@ export default function Home() {
           <div className="mx-auto max-w-3xl space-y-4">
             {messages.length === 0 && <WelcomeScreen />}
             {messages.map((msg) => (
-              <ChatMessage key={msg.id} message={msg} isStreaming={isStreaming && msg === messages[messages.length - 1]} />
+              <ChatMessage
+                key={msg.id}
+                message={msg}
+                isStreaming={isStreaming && msg === messages[messages.length - 1]}
+              />
             ))}
             <div ref={messagesEndRef} />
           </div>
         </div>
-        <ChatInput onSend={sendMessage} disabled={isStreaming} />
+        <ChatInput
+          onSend={sendMessage}
+          onAudioAnswer={handleAudioAnswer}
+          disabled={isStreaming}
+          isTranscribing={isTranscribing}
+        />
       </main>
     </div>
   );
@@ -131,17 +217,18 @@ function WelcomeScreen() {
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <h1 className="mb-4 text-3xl font-bold text-primary">面试诊断 Agent</h1>
       <p className="mb-8 max-w-md text-zinc-400">
-        输入面试题和你的回答，获取结构化诊断。支持追问模拟、答案对比、学习路径推荐。
+        输入面试题和你的回答，或直接录音上传，获取结构化诊断、追问建议和复盘文档。
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {[
-          '帮我诊断一下 ReAct 循环的回答',
+          '帮我诊断一个 ReAct 循环的回答',
           '列出所有考察维度',
           '模拟一场 Agent 架构面试',
           '我的薄弱点在哪里',
         ].map((text) => (
           <button
             key={text}
+            onClick={() => void 0}
             className="rounded-lg border border-zinc-700 px-4 py-3 text-left text-sm text-zinc-300 transition hover:border-primary hover:bg-surface-light"
           >
             {text}

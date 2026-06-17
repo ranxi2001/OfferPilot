@@ -72,7 +72,9 @@ export class SubAgentRuntime {
 
     messages.push({ role: 'user', content: task.input });
 
-    const tools = config.tools ?? this.toolRegistry?.listSchemas();
+    const tools = Object.prototype.hasOwnProperty.call(config, 'tools')
+      ? config.tools
+      : this.toolRegistry?.listSchemas();
 
     try {
       for (let i = 0; i < maxIterations; i++) {

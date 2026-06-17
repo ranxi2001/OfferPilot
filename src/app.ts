@@ -65,6 +65,8 @@ export interface AppOptions {
   onToolResult?: (name: string, result: string) => void;
 }
 
+const RECOMMENDED_OPENAI_MODEL = 'gpt-5.5';
+
 export function createApp(opts?: AppOptions) {
   const providers = buildProviders();
 
@@ -84,7 +86,7 @@ export function createApp(opts?: AppOptions) {
     toolRegistry,
   });
 
-  subAgentRuntime.register({ id: 'diagnostician', role: 'diagnostician', systemPrompt: '' });
+  subAgentRuntime.register({ id: 'diagnostician', role: 'diagnostician', systemPrompt: '', tools: [], maxIterations: 1 });
   subAgentRuntime.register({ id: 'interviewer', role: 'interviewer', systemPrompt: '' });
   subAgentRuntime.register({ id: 'researcher', role: 'researcher', systemPrompt: '' });
   subAgentRuntime.register({ id: 'reporter', role: 'reporter', systemPrompt: '' });
@@ -137,10 +139,11 @@ function buildProviders() {
   }
 
   if (process.env.OPENAI_API_KEY) {
+    const defaultModel = process.env.OPENAI_MODEL ?? RECOMMENDED_OPENAI_MODEL;
     configs.push({
-      provider: new OpenAIProvider(),
-      models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
-      defaultModel: 'gpt-4o',
+      provider: new OpenAIProvider({ baseURL: process.env.OPENAI_BASE_URL }),
+      models: [RECOMMENDED_OPENAI_MODEL, 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', defaultModel],
+      defaultModel,
     });
   }
 

@@ -9,8 +9,9 @@ interface Props {
 }
 
 const MODELS = [
+  { id: 'gpt-5.5', label: 'GPT-5.5' },
   { id: 'claude', label: 'Claude' },
-  { id: 'openai', label: 'GPT-4o' },
+  { id: 'openai', label: 'OpenAI Default' },
   { id: 'deepseek', label: 'DeepSeek' },
 ];
 
