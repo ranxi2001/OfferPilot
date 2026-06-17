@@ -67,13 +67,27 @@ function walkMarkdownFiles(dir: string): string[] {
 
 function detectDimension(path: string): string {
   const dimensionMap: Record<string, string> = {
-    '01-': 'architecture',
-    '02-': 'engineering',
-    '03-': 'model',
-    '04-': 'rag',
-    '05-': 'multi-agent',
-    '06-': 'evaluation',
-    '07-': 'full-stack',
+    '01-architecture': 'architecture',
+    '02-engineering': 'engineering',
+    '02-tool': 'engineering',
+    '03-model': 'model',
+    '03-fault': 'engineering',
+    '04-rag': 'rag',
+    '04-memory': 'rag',
+    '05-multi-agent': 'multi-agent',
+    '05-eval': 'evaluation',
+    '06-evaluation': 'evaluation',
+    '06-multi-agent': 'multi-agent',
+    '07-full-stack': 'full-stack',
+    '07-engineering': 'engineering',
+    '08-prompt': 'model',
+    '09-rag': 'rag',
+    '10-training': 'model',
+    '11-ai-code': 'full-stack',
+    '12-business': 'full-stack',
+    '13-project': 'architecture',
+    '14-company': 'architecture',
+    '15-agent': 'architecture',
   };
 
   for (const [prefix, dim] of Object.entries(dimensionMap)) {
@@ -84,7 +98,7 @@ function detectDimension(path: string): string {
 
 function extractQuestions(content: string): ParsedQuestion[] {
   const questions: ParsedQuestion[] = [];
-  const qBlocks = content.split(/^## Q[：:]/m).slice(1);
+  const qBlocks = content.split(/^#{2,3}\s*Q[：:]/m).slice(1);
 
   for (const block of qBlocks) {
     const lines = block.trim();
@@ -93,12 +107,20 @@ function extractQuestions(content: string): ParsedQuestion[] {
 
     const question = questionMatch[1].trim();
     const noviceMatch = lines.match(/\*\*新手答\*\*[：:]?\s*"?(.+?)"?\s*(?:\n|$)/);
-    const expertMatch = lines.match(/\*\*高手答\*\*[：:]?\s*\n([\s\S]+?)(?=\n\*\*|$)/);
+
+    const expertStartMatch = lines.match(/\*\*高手答\*\*[：:]?\s*\n/);
+    let expertAnswer: string | undefined;
+    if (expertStartMatch) {
+      const startIdx = expertStartMatch.index! + expertStartMatch[0].length;
+      const remaining = lines.slice(startIdx);
+      const endMatch = remaining.match(/\n(?:\*\*差距在哪|---|\n#{2,3}\s|^\*\*追问)/m);
+      expertAnswer = endMatch ? remaining.slice(0, endMatch.index).trim() : remaining.trim();
+    }
 
     questions.push({
       question,
       noviceAnswer: noviceMatch?.[1]?.trim(),
-      expertAnswer: expertMatch?.[1]?.trim(),
+      expertAnswer: expertAnswer?.slice(0, 2000),
     });
   }
 

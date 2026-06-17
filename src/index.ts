@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { createApp } from './app.js';
 import { openDatabase, initSchema } from './db/index.js';
-import { parseKnowledgeDir } from './knowledge/index.js';
+import { parseKnowledgeDir, OpenAIEmbeddingProvider } from './knowledge/index.js';
 import { KnowledgeSearch } from './knowledge/search.js';
 
 const program = new Command();
@@ -35,6 +35,8 @@ program
       input: process.stdin,
       output: process.stdout,
     });
+
+    setupGracefulShutdown(() => rl.close());
 
     const prompt = () => {
       rl.question(chalk.blue('> '), async (input) => {
@@ -124,5 +126,44 @@ program
     console.log(chalk.green(`写入数据库: ${search.count()} 条 (${dbPath})`));
     db.close();
   });
+
+program
+  .command('embed')
+  .description('为知识库生成 embedding 向量索引（需要 OPENAI_API_KEY）')
+  .option('--db <path>', '数据库路径', 'data/agent.db')
+  .option('--model <model>', 'Embedding 模型', 'text-embedding-3-small')
+  .action(async (opts) => {
+    if (!process.env.OPENAI_API_KEY) {
+      console.error(chalk.red('错误: 需要设置 OPENAI_API_KEY 环境变量'));
+      process.exit(1);
+    }
+
+    const dbPath = resolve(opts.db);
+    const db = openDatabase(dbPath);
+    initSchema(db);
+
+    const embeddingProvider = new OpenAIEmbeddingProvider({ model: opts.model });
+    const search = new KnowledgeSearch(db, embeddingProvider);
+
+    const total = search.count();
+    console.log(chalk.dim(`知识库共 ${total} 条，开始生成 embedding...`));
+
+    const indexed = await search.indexEmbeddings();
+    console.log(chalk.green(`完成: 新生成 ${indexed} 条 embedding 向量 (模型: ${opts.model})`));
+    db.close();
+  });
+
+function setupGracefulShutdown(cleanup: () => void) {
+  let shuttingDown = false;
+  const handler = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(chalk.dim('\n正在关闭...'));
+    cleanup();
+    process.exit(0);
+  };
+  process.on('SIGTERM', handler);
+  process.on('SIGINT', handler);
+}
 
 program.parse();

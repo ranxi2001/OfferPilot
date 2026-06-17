@@ -1,23 +1,49 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:3001';
+const API_KEY = process.env.OFFERPILOT_API_KEY;
+const HEARTBEAT_INTERVAL = 15000;
+
+function validateAuth(req: NextRequest): boolean {
+  if (!API_KEY) return true;
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader) return false;
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  return token === API_KEY;
+}
 
 export async function POST(req: NextRequest) {
+  if (!validateAuth(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await req.json();
+  const { message, sessionId, model } = body as { message?: string; sessionId?: string; model?: string };
 
-  // In production, proxy to the backend API server
-  // In dev/mock mode, generate mock SSE response directly
+  if (!message) {
+    return NextResponse.json({ error: 'message is required' }, { status: 400 });
+  }
+
   const useMock = !process.env.BACKEND_URL;
-
   if (useMock) {
     return mockSSEResponse(body);
   }
 
   const backendRes = await fetch(`${BACKEND_URL}/api/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    headers: {
+      'Content-Type': 'application/json',
+      ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
+    },
+    body: JSON.stringify({ message, sessionId, model }),
   });
+
+  if (!backendRes.ok) {
+    return NextResponse.json(
+      { error: `Backend error: ${backendRes.status}` },
+      { status: backendRes.status },
+    );
+  }
 
   return new Response(backendRes.body, {
     headers: {
@@ -38,19 +64,30 @@ function mockSSEResponse(body: { message: string; model?: string }) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       };
 
-      await sleep(100);
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(`: ping\n\n`));
+        } catch {
+          clearInterval(heartbeat);
+        }
+      }, HEARTBEAT_INTERVAL);
 
-      const response = generateMockResponse(message);
+      try {
+        await sleep(100);
 
-      // Simulate streaming
-      const chunks = chunkText(response);
-      for (const chunk of chunks) {
-        send({ type: 'text_delta', content: chunk });
-        await sleep(30);
+        const response = generateMockResponse(message);
+        const chunks = chunkText(response);
+        for (const chunk of chunks) {
+          send({ type: 'text_delta', content: chunk });
+          await sleep(30);
+        }
+
+        send({ type: 'done' });
+      } finally {
+        clearInterval(heartbeat);
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
       }
-
-      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-      controller.close();
     },
   });
 
@@ -71,11 +108,7 @@ function generateMockResponse(input: string): string {
   }
 
   if (lower.includes('react') || lower.includes('agent') || lower.includes('循环')) {
-    return `## 诊断结果\n\n### 评分：6.5 / 10\n\n你的回答触及了核心概念，但缺少工程细节。\n\n**新手答**：「ReAct 就是先思考再行动」\n\n**高手答**：\n\nReAct 的核心是 Observe → Think → Act → Observe 闭环。工程关键点：\n1. **循环终止**：max_iterations 兜底\n2. **错误恢复**：结构化错误信息喂回模型\n3. **Context 膨胀**：sliding window 或 summarization\n4. **可观测性**：每轮结构化日志\n\n### 改进建议\n- 先给概念定义，再展开工程要点\n- 提到生产环境踩坑经验\n- 用具体数字增强说服力`;
-  }
-
-  if (lower.includes('维度') || lower.includes('分类')) {
-    return `当前支持 **7 个考察维度**：\n\n1. 架构设计 (architecture)\n2. Harness 工程 (engineering)\n3. 模型能力 (model)\n4. RAG 知识增强 (rag)\n5. 多 Agent 协作 (multi-agent)\n6. 评测质量 (evaluation)\n7. 全栈工程 (full-stack)\n\n你想从哪个维度开始？`;
+    return `## 诊断结果\n\n### 评分：6.5 / 10\n\n你的回答触及了核心概念，但缺少工程细节。\n\n**改进建议**：\n1. 先给概念定义，再展开工程要点\n2. 提到生产环境踩坑经验\n3. 用具体数字增强说服力`;
   }
 
   return `收到！请用以下格式输入：\n\n**题目**：（面试问题）\n**我的回答**：（你的作答）\n\n我会给出评分、差距分析和改进建议。`;

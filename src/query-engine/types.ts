@@ -3,6 +3,7 @@ export interface Message {
   content?: string;
   toolCallId?: string;
   toolCalls?: ToolCall[];
+  isError?: boolean;
 }
 
 export interface ToolCall {
@@ -67,5 +68,5 @@ export interface QueryParams {
 export interface LLMProvider {
   name: string;
   stream(params: StreamParams): AsyncIterable<StreamEvent>;
-  countTokens(messages: Message[], tools?: ToolSchema[]): Promise<number>;
+  countTokens(messages: Message[], tools?: ToolSchema[], model?: string): Promise<number>;
 }

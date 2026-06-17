@@ -85,8 +85,7 @@ export class OpenAIProvider implements LLMProvider {
     }
   }
 
-  async countTokens(_messages: Message[], _tools?: ToolSchema[]): Promise<number> {
-    // OpenAI doesn't provide a token counting API; estimate based on character count
+  async countTokens(_messages: Message[], _tools?: ToolSchema[], _model?: string): Promise<number> {
     const text = _messages.map((m) => m.content ?? '').join('');
     return Math.ceil(text.length / 3.5);
   }

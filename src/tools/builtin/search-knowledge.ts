@@ -84,9 +84,12 @@ export const searchKnowledge: ToolDefinition = {
               expertAnswer: r.entry.expertAnswer?.slice(0, 300),
               score: r.score,
             })),
+            source: 'database',
           }),
         };
-      } catch {}
+      } catch (err) {
+        console.warn(`[search_knowledge] DB error, falling back to mock: ${(err as Error).message}`);
+      }
     }
 
     // Fallback to mock results

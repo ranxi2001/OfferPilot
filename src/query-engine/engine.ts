@@ -64,8 +64,8 @@ export class QueryEngine {
   }
 
   async countTokens(params: Pick<QueryParams, 'model' | 'messages' | 'tools'>): Promise<number> {
-    const { provider } = this.router.resolve(params.model);
-    return provider.countTokens(params.messages, params.tools);
+    const { provider, model } = this.router.resolve(params.model);
+    return provider.countTokens(params.messages, params.tools, model);
   }
 
   listProviders(): string[] {

@@ -30,8 +30,11 @@ export class ProviderRouter {
       }
     }
 
+    if (this.configs.length === 0) {
+      throw new Error('No providers registered. Configure at least one LLM provider (set ANTHROPIC_API_KEY, OPENAI_API_KEY, or DEEPSEEK_API_KEY).');
+    }
+
     const first = this.configs[0];
-    if (!first) throw new Error('No providers registered');
     return { provider: first.provider, model: first.defaultModel };
   }
 

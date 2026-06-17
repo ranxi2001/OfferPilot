@@ -17,5 +17,6 @@ export interface ToolContext {
 export interface ToolResult {
   success: boolean;
   output: string;
+  isError?: boolean;
   metadata?: Record<string, unknown>;
 }

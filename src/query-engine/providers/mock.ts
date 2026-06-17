@@ -33,7 +33,7 @@ export class MockProvider implements LLMProvider {
     }
   }
 
-  async countTokens(messages: Message[]): Promise<number> {
+  async countTokens(messages: Message[], _tools?: ToolSchema[], _model?: string): Promise<number> {
     return messages.reduce((sum, m) => sum + (m.content?.length ?? 0) / 4, 0);
   }
 

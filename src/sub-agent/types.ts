@@ -1,3 +1,5 @@
+import type { ToolSchema } from '../query-engine/types.js';
+
 export type SubAgentRole =
   | 'diagnostician'
   | 'interviewer'
@@ -13,12 +15,14 @@ export interface SubAgentConfig {
   systemPrompt: string;
   model?: string;
   maxIterations?: number;
+  tools?: ToolSchema[];
 }
 
 export interface SubAgentTask {
   agentId: string;
   input: string;
   parentSessionId: string;
+  context?: string;
   timeout?: number;
 }
 

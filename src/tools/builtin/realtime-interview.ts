@@ -1,7 +1,15 @@
-import type { ToolDefinition } from '../types.js';
+import type { ToolDefinition, ToolContext } from '../types.js';
 import { RealtimeInterviewSession } from '../../realtime/index.js';
 
-const sessions = new Map<string, RealtimeInterviewSession>();
+const sessionStore = new Map<string, RealtimeInterviewSession>();
+
+export function getInterviewSession(id: string): RealtimeInterviewSession | undefined {
+  return sessionStore.get(id);
+}
+
+export function clearInterviewSessions(): void {
+  sessionStore.clear();
+}
 
 export const realtimeInterview: ToolDefinition = {
   schema: {
@@ -15,7 +23,7 @@ export const realtimeInterview: ToolDefinition = {
           enum: ['start', 'answer', 'next', 'report'],
           description: 'start=开始新模拟, answer=提交回答, next=下一题, report=总结报告',
         },
-        sessionId: { type: 'string', description: '会话 ID（answer/next/report 时必填）' },
+        sessionId: { type: 'string', description: '面试会话 ID（answer/next/report 时必填）' },
         questions: {
           type: 'array',
           description: '自定义题目列表（start 时可选）',
@@ -26,7 +34,7 @@ export const realtimeInterview: ToolDefinition = {
     },
   },
   riskLevel: 'low',
-  async execute(input) {
+  async execute(input, ctx?: ToolContext) {
     const { action, sessionId, questions, answerText } = input as {
       action: string;
       sessionId?: string;
@@ -34,10 +42,12 @@ export const realtimeInterview: ToolDefinition = {
       answerText?: string;
     };
 
+    const scopedKey = (id: string) => ctx?.sessionId ? `${ctx.sessionId}:${id}` : id;
+
     switch (action) {
       case 'start': {
         const session = new RealtimeInterviewSession(questions);
-        sessions.set(session.id, session);
+        sessionStore.set(scopedKey(session.id), session);
         const firstQuestion = session.start();
         return {
           success: true,
@@ -52,7 +62,7 @@ export const realtimeInterview: ToolDefinition = {
       }
 
       case 'answer': {
-        const session = sessions.get(sessionId ?? '');
+        const session = sessionStore.get(scopedKey(sessionId ?? ''));
         if (!session) return { success: false, output: '会话不存在，请先 start' };
         if (!answerText) return { success: false, output: '请提供回答文本 answerText' };
 
@@ -77,7 +87,7 @@ export const realtimeInterview: ToolDefinition = {
       }
 
       case 'next': {
-        const session = sessions.get(sessionId ?? '');
+        const session = sessionStore.get(scopedKey(sessionId ?? ''));
         if (!session) return { success: false, output: '会话不存在' };
 
         const nextQ = session.nextQuestion();
@@ -105,11 +115,12 @@ export const realtimeInterview: ToolDefinition = {
       }
 
       case 'report': {
-        const session = sessions.get(sessionId ?? '');
+        const key = scopedKey(sessionId ?? '');
+        const session = sessionStore.get(key);
         if (!session) return { success: false, output: '会话不存在' };
 
         const report = session.getReport();
-        sessions.delete(sessionId!);
+        sessionStore.delete(key);
         return {
           success: true,
           output: JSON.stringify({

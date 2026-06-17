@@ -1,0 +1,31 @@
+services:
+  api:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OFFERPILOT_API_KEY=${OFFERPILOT_API_KEY}
+      - DB_PATH=/app/data/agent.db
+      - LOG_LEVEL=info
+    volumes:
+      - app-data:/app/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - BACKEND_URL=http://api:3001
+      - OFFERPILOT_API_KEY=${OFFERPILOT_API_KEY}
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  app-data:

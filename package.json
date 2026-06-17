@@ -7,6 +7,8 @@
     "start": "tsx src/index.ts start",
     "diagnose": "tsx src/index.ts diagnose",
     "build-kb": "tsx src/index.ts build-kb",
+    "embed": "tsx src/index.ts embed",
+    "serve": "tsx src/server.ts",
     "build": "tsc",
     "test": "vitest",
     "test:e2e": "vitest run tests/e2e"

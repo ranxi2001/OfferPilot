@@ -4,9 +4,11 @@ import type { LLMProvider, Message, StreamEvent, StreamParams, ToolSchema } from
 export class ClaudeProvider implements LLMProvider {
   name = 'claude';
   private client: Anthropic;
+  private defaultModel: string;
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, defaultModel = 'claude-sonnet-4-20250514') {
     this.client = new Anthropic({ apiKey });
+    this.defaultModel = defaultModel;
   }
 
   async *stream(params: StreamParams): AsyncIterable<StreamEvent> {
@@ -80,9 +82,9 @@ export class ClaudeProvider implements LLMProvider {
     }
   }
 
-  async countTokens(messages: Message[], tools?: ToolSchema[]): Promise<number> {
+  async countTokens(messages: Message[], tools?: ToolSchema[], model?: string): Promise<number> {
     const result = await this.client.messages.countTokens({
-      model: 'claude-sonnet-4-20250514',
+      model: model ?? this.defaultModel,
       messages: messages.map((m) => this.toAnthropicMessage(m)),
       tools: tools?.map((t) => this.toAnthropicTool(t)),
     });

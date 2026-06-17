@@ -1,0 +1,9 @@
+node_modules
+dist
+data
+.git
+.github
+web/node_modules
+web/.next
+*.md
+tests

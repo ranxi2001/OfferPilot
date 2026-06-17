@@ -1,4 +1,4 @@
-import type { Message, ParsedResponse, QueryParams, ToolCall } from '../query-engine/types.js';
+import type { Message, ParsedResponse, QueryParams, TokenUsage, ToolCall } from '../query-engine/types.js';
 import type { QueryEngine } from '../query-engine/engine.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { PermissionGate } from '../permission/gate.js';
@@ -6,6 +6,7 @@ import type { ContextManager } from '../context/manager.js';
 import type { SessionManager } from '../session/manager.js';
 import type { MemoryStore } from '../memory/store.js';
 import type { HookPipeline } from '../hooks/pipeline.js';
+import { logger } from '../logger.js';
 
 export interface AgentConfig {
   queryEngine: QueryEngine;
@@ -16,23 +17,41 @@ export interface AgentConfig {
   memoryStore: MemoryStore;
   hookPipeline?: HookPipeline;
   maxIterations?: number;
+  maxBudgetTokens?: number;
   defaultModel?: string;
+  abortSignal?: AbortSignal;
   onTextDelta?: (text: string) => void;
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string) => void;
+  onPermissionRequest?: (toolName: string, input: Record<string, unknown>) => Promise<boolean>;
+}
+
+export interface UsageStats {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  iterations: number;
 }
 
 export class AgentLoop {
   private config: AgentConfig;
   private maxIterations: number;
+  private usage: UsageStats = { inputTokens: 0, outputTokens: 0, totalTokens: 0, iterations: 0 };
 
   constructor(config: AgentConfig) {
     this.config = config;
     this.maxIterations = config.maxIterations ?? 10;
   }
 
+  getUsage(): UsageStats {
+    return { ...this.usage };
+  }
+
   async run(sessionId: string, userMessage: string): Promise<string> {
     const { queryEngine, toolRegistry, contextManager, sessionManager, memoryStore } = this.config;
+    const abortSignal = this.config.abortSignal;
+
+    const log = logger.child({ sessionId, component: 'AgentLoop' });
 
     const session = sessionManager.get(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found`);
@@ -41,6 +60,7 @@ export class AgentLoop {
       sessionManager.transition(sessionId, 'active');
     }
 
+    log.info('run started', { messageLength: userMessage.length });
     sessionManager.addMessage(sessionId, { role: 'user', content: userMessage });
 
     const memories = memoryStore.query({ sessionId, limit: 5 });
@@ -54,8 +74,19 @@ export class AgentLoop {
     let finalText = '';
 
     for (let i = 0; i < this.maxIterations; i++) {
+      if (abortSignal?.aborted) {
+        throw new Error('Agent loop aborted');
+      }
+
+      if (this.config.maxBudgetTokens && this.usage.totalTokens >= this.config.maxBudgetTokens) {
+        break;
+      }
+
       const compressed = contextManager.compress(messages);
-      messages = compressed.messages;
+      if (compressed.level !== 'none') {
+        messages = compressed.messages;
+        sessionManager.replaceMessages(sessionId, messages);
+      }
 
       const params: QueryParams = {
         model: this.config.defaultModel,
@@ -66,6 +97,8 @@ export class AgentLoop {
       };
 
       const response: ParsedResponse = await queryEngine.query(params);
+      this.trackUsage(response.usage);
+      this.usage.iterations = i + 1;
 
       if (response.type === 'text') {
         finalText = response.content ?? '';
@@ -82,12 +115,16 @@ export class AgentLoop {
         sessionManager.addMessage(sessionId, assistantMsg);
         messages.push(assistantMsg);
 
-        for (const toolCall of response.toolCalls) {
-          const result = await this.executeTool(toolCall, sessionId);
+        const toolResults = await Promise.all(
+          response.toolCalls.map((toolCall) => this.executeTool(toolCall, sessionId))
+        );
+
+        for (let j = 0; j < response.toolCalls.length; j++) {
           const toolMsg: Message = {
             role: 'tool',
-            toolCallId: toolCall.id,
-            content: result,
+            toolCallId: response.toolCalls[j].id,
+            content: toolResults[j].output,
+            isError: toolResults[j].isError,
           };
           sessionManager.addMessage(sessionId, toolMsg);
           messages.push(toolMsg);
@@ -95,23 +132,50 @@ export class AgentLoop {
       }
     }
 
+    if (!finalText) {
+      finalText = '抱歉，我在处理您的请求时达到了最大迭代次数，未能生成完整回复。请尝试简化问题或重新提问。';
+      sessionManager.addMessage(sessionId, { role: 'assistant', content: finalText });
+      log.warn('max iterations reached', { iterations: this.usage.iterations });
+    }
+
+    log.info('run completed', { iterations: this.usage.iterations, totalTokens: this.usage.totalTokens });
     return finalText;
   }
 
-  private async executeTool(toolCall: ToolCall, sessionId: string): Promise<string> {
+  private trackUsage(usage: TokenUsage): void {
+    this.usage.inputTokens += usage.inputTokens;
+    this.usage.outputTokens += usage.outputTokens;
+    this.usage.totalTokens += usage.inputTokens + usage.outputTokens;
+  }
+
+  private async executeTool(
+    toolCall: ToolCall,
+    sessionId: string
+  ): Promise<{ output: string; isError?: boolean }> {
     const { toolRegistry, permissionGate, hookPipeline } = this.config;
 
     const tool = toolRegistry.get(toolCall.name);
-    if (!tool) return JSON.stringify({ error: `Tool "${toolCall.name}" not found` });
+    if (!tool) {
+      return { output: `Tool "${toolCall.name}" not found`, isError: true };
+    }
 
     const decision = permissionGate.check(toolCall.name, tool.riskLevel, sessionId);
     if (!decision.allowed) {
-      return JSON.stringify({ error: `Permission denied: ${decision.reason}` });
+      return { output: `Permission denied: ${decision.reason}`, isError: true };
+    }
+
+    if (decision.requiresUserConfirm) {
+      if (!this.config.onPermissionRequest) {
+        return { output: `Tool "${toolCall.name}" requires user confirmation but no handler is configured`, isError: true };
+      }
+      const confirmed = await this.config.onPermissionRequest(toolCall.name, toolCall.input);
+      if (!confirmed) {
+        return { output: `User denied execution of "${toolCall.name}"`, isError: true };
+      }
     }
 
     let input = toolCall.input;
 
-    // Run pre-tool hooks
     if (hookPipeline) {
       const preResult = await hookPipeline.runPreTool({
         sessionId,
@@ -119,16 +183,16 @@ export class AgentLoop {
         input,
       });
       if (!preResult.proceed) {
-        return JSON.stringify({ skipped: true, reason: preResult.reason });
+        return { output: `Skipped by hook: ${preResult.reason}`, isError: true };
       }
       input = preResult.input;
     }
 
     this.config.onToolCall?.(toolCall.name, input);
 
+    const toolStart = Date.now();
     let result = await toolRegistry.execute(toolCall.name, input, { sessionId });
 
-    // Run post-tool hooks
     if (hookPipeline) {
       result = await hookPipeline.runPostTool({
         sessionId,
@@ -143,12 +207,14 @@ export class AgentLoop {
       sessionId,
       toolName: toolCall.name,
       riskLevel: tool.riskLevel,
-      decision: 'allowed',
+      decision: decision.requiresUserConfirm ? 'confirmed' : 'allowed',
       input,
     });
 
     this.config.onToolResult?.(toolCall.name, result.output);
 
-    return result.output;
+    logger.debug('tool executed', { tool: toolCall.name, duration: Date.now() - toolStart, success: result.success });
+
+    return { output: result.output, isError: result.isError ?? !result.success };
   }
 }

@@ -10,6 +10,9 @@ import { SessionManager } from './session/index.js';
 import { MemoryStore } from './memory/index.js';
 import { AgentLoop } from './agent/index.js';
 import { HookPipeline, inputSanitizerHook, tokenCounterHook } from './hooks/index.js';
+import { SubAgentRuntime } from './sub-agent/index.js';
+import { createDispatchSubAgent } from './tools/builtin/dispatch-sub-agent.js';
+import { setDiagnoseSubAgent } from './tools/builtin/diagnose-answer.js';
 import {
   CommandParser,
   helpCommand,
@@ -72,9 +75,25 @@ export function createApp(opts?: AppOptions) {
 
   const toolRegistry = createToolRegistry();
   const permissionGate = new PermissionGate();
-  const contextManager = new ContextManager();
+  const contextManager = new ContextManager({ queryEngine });
   const sessionManager = new SessionManager();
   const memoryStore = new MemoryStore();
+
+  const subAgentRuntime = new SubAgentRuntime(queryEngine, {
+    maxConcurrency: 3,
+    toolRegistry,
+  });
+
+  subAgentRuntime.register({ id: 'diagnostician', role: 'diagnostician', systemPrompt: '' });
+  subAgentRuntime.register({ id: 'interviewer', role: 'interviewer', systemPrompt: '' });
+  subAgentRuntime.register({ id: 'researcher', role: 'researcher', systemPrompt: '' });
+  subAgentRuntime.register({ id: 'reporter', role: 'reporter', systemPrompt: '' });
+  subAgentRuntime.register({ id: 'jd-analyst', role: 'jd-analyst', systemPrompt: '' });
+  subAgentRuntime.register({ id: 'resume-optimizer', role: 'resume-optimizer', systemPrompt: '' });
+  subAgentRuntime.register({ id: 'gap-analyzer', role: 'gap-analyzer', systemPrompt: '' });
+
+  toolRegistry.register(createDispatchSubAgent(subAgentRuntime));
+  setDiagnoseSubAgent(subAgentRuntime);
 
   const hookPipeline = new HookPipeline();
   hookPipeline.register(inputSanitizerHook);
@@ -103,7 +122,7 @@ export function createApp(opts?: AppOptions) {
     onToolResult: opts?.onToolResult,
   });
 
-  return { agent, sessionManager, queryEngine, toolRegistry, memoryStore, commandParser, hookPipeline };
+  return { agent, sessionManager, queryEngine, toolRegistry, memoryStore, commandParser, hookPipeline, subAgentRuntime };
 }
 
 function buildProviders() {
