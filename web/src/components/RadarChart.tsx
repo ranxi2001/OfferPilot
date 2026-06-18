@@ -11,10 +11,10 @@ interface Props {
   size?: number;
 }
 
-export function RadarChart({ dimensions, size = 280 }: Props) {
+export function RadarChart({ dimensions, size = 320 }: Props) {
   const cx = size / 2;
   const cy = size / 2;
-  const radius = size * 0.38;
+  const radius = size * 0.32;
   const levels = 5;
   const angleSlice = (Math.PI * 2) / dimensions.length;
 
@@ -90,41 +90,39 @@ export function RadarChart({ dimensions, size = 280 }: Props) {
         />
       ))}
 
-      {/* Labels */}
+      {/* Labels + scores combined */}
       {dimensions.map((d, i) => {
-        const labelRadius = radius + 28;
+        const angle = angleSlice * i - Math.PI / 2;
+        const labelRadius = radius + 36;
         const p = getPoint(angleSlice * i, labelRadius);
-        return (
-          <text
-            key={i}
-            x={p.x}
-            y={p.y}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            className="text-[11px] font-medium"
-            fill="#475569"
-          >
-            {d.label}
-          </text>
-        );
-      })}
 
-      {/* Score labels */}
-      {dimensions.map((d, i) => {
-        const scoreRadius = radius + 12;
-        const p = getPoint(angleSlice * i, scoreRadius);
+        const isTop = angle < -Math.PI * 0.25 && angle > -Math.PI * 0.75;
+        const isBottom = angle > Math.PI * 0.25 && angle < Math.PI * 0.75;
+        const dy = isTop ? -6 : isBottom ? 6 : 0;
+
         return (
-          <text
-            key={`score-${i}`}
-            x={p.x}
-            y={p.y + 12}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            className="text-[10px]"
-            fill="#94a3b8"
-          >
-            {d.value}/{d.max}
-          </text>
+          <g key={i}>
+            <text
+              x={p.x}
+              y={p.y + dy}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              className="text-[11px] font-medium"
+              fill="#475569"
+            >
+              {d.label}
+            </text>
+            <text
+              x={p.x}
+              y={p.y + dy + 14}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              className="text-[10px]"
+              fill="#94a3b8"
+            >
+              {d.value}/{d.max}
+            </text>
+          </g>
         );
       })}
     </svg>

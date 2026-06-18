@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { GitCompare, CheckCircle2, XCircle, ArrowRight, Briefcase, Sparkles } from 'lucide-react';
+import { GitCompare, CheckCircle2, XCircle, ArrowRight, Briefcase, Sparkles, Upload } from 'lucide-react';
 
 interface MatchResult {
   score: number;
@@ -31,6 +31,37 @@ export function MatchView() {
   const [resumeContent, setResumeContent] = useState('');
   const [result, setResult] = useState<MatchResult | null>(null);
   const [isMatching, setIsMatching] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
+  const [resumeFileName, setResumeFileName] = useState<string | null>(null);
+
+  const handleResumeFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setResumeFileName(file.name);
+
+    const ext = file.name.toLowerCase().split('.').pop();
+    if (ext === 'txt' || ext === 'md') {
+      const reader = new FileReader();
+      reader.onload = (ev) => setResumeContent(ev.target?.result as string);
+      reader.readAsText(file);
+      return;
+    }
+
+    setIsParsing(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setResumeContent(data.text);
+    } catch {
+      setResumeFileName(null);
+    } finally {
+      setIsParsing(false);
+    }
+  };
 
   const handleMatch = async () => {
     if (!jdContent.trim() || !resumeContent.trim()) return;
@@ -74,14 +105,26 @@ export function MatchView() {
 
           {/* Resume input */}
           <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card">
-            <div className="flex items-center gap-2 mb-3">
-              <GitCompare size={14} className="text-cyan" />
-              <h3 className="text-sm font-semibold text-primary">简历摘要</h3>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <GitCompare size={14} className="text-cyan" />
+                <h3 className="text-sm font-semibold text-primary">简历内容</h3>
+              </div>
+              <label className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] text-slate-500 hover:border-accent hover:text-accent cursor-pointer transition-all">
+                <Upload size={11} />
+                {isParsing ? '解析中...' : '上传简历'}
+                <input type="file" accept=".pdf,.docx,.doc,.md,.txt,.tex" className="hidden" onChange={handleResumeFile} disabled={isParsing} />
+              </label>
             </div>
+            {resumeFileName && (
+              <div className="flex items-center gap-2 mb-2 rounded-md bg-accent/5 px-2.5 py-1.5 text-[11px] text-accent-dark">
+                <span>{resumeFileName}</span>
+              </div>
+            )}
             <textarea
               value={resumeContent}
               onChange={(e) => setResumeContent(e.target.value)}
-              placeholder="粘贴你的简历关键内容...&#10;&#10;技能和项目经历即可"
+              placeholder="粘贴简历内容或上传 PDF 文件...&#10;&#10;技能和项目经历即可"
               rows={8}
               className="w-full rounded-xl border border-slate-200 bg-surface-muted px-4 py-3 text-sm text-slate-700 placeholder-slate-400 outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 resize-none transition-all"
             />

@@ -82,7 +82,7 @@ export function DashboardView() {
             <h3 className="text-sm font-semibold text-primary mb-1">能力雷达图</h3>
             <p className="text-xs text-slate-400 mb-4">7 维度面试能力评估</p>
             <div className="flex justify-center">
-              <RadarChart dimensions={DIMENSIONS} size={300} />
+              <RadarChart dimensions={DIMENSIONS} size={320} />
             </div>
           </div>
 
@@ -138,7 +138,7 @@ export function DashboardView() {
         <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-card">
           <h3 className="text-sm font-semibold text-primary mb-1">学习路径推荐</h3>
           <p className="text-xs text-slate-400 mb-4">根据薄弱维度自动生成，完成后重新诊断更新</p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 grid-cols-2">
             {getLearningPath(DIMENSIONS).map((item) => (
               <div key={item.title} className={`rounded-xl border p-3 ${
                 item.priority === 'high' ? 'border-amber-200 bg-amber-50/50' : 'border-slate-200 bg-slate-50/50'

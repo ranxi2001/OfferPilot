@@ -1,6 +1,7 @@
 'use client';
 
-import { MessageSquare, FileText, GitCompare, BarChart3, Compass, Settings, Mic } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { MessageSquare, FileText, GitCompare, BarChart3, Compass, Settings, Mic, ChevronDown, Circle, Pencil } from 'lucide-react';
 
 export type ViewType = 'chat' | 'interview' | 'resume' | 'match' | 'dashboard';
 
@@ -9,23 +10,60 @@ interface Props {
   onViewChange: (view: ViewType) => void;
   model: string;
   onModelChange: (model: string) => void;
+  onOpenConfig?: () => void;
 }
 
 const NAV_ITEMS: { id: ViewType; label: string; icon: typeof MessageSquare; desc: string }[] = [
   { id: 'chat', label: '面试诊断', icon: MessageSquare, desc: '对话式诊断' },
+  { id: 'resume', label: '简历诊断', icon: FileText, desc: '上传 PDF 一键分析' },
+  { id: 'match', label: 'JD 匹配', icon: GitCompare, desc: '简历-岗位对齐' },
   { id: 'interview', label: '模拟面试', icon: Mic, desc: '逐题实时反馈' },
-  { id: 'resume', label: '简历分析', icon: FileText, desc: '段落级优化' },
-  { id: 'match', label: 'JD 匹配', icon: GitCompare, desc: '关键词覆盖' },
   { id: 'dashboard', label: '能力雷达', icon: BarChart3, desc: '7 维度评估' },
 ];
 
-const MODELS = [
-  { id: 'claude', label: 'Claude' },
-  { id: 'gpt-4o', label: 'GPT-4o' },
-  { id: 'deepseek', label: 'DeepSeek' },
-];
+interface ModelItem {
+  name: string;
+  provider: string;
+  model: string;
+  available: boolean;
+}
 
-export function Sidebar({ activeView, onViewChange, model, onModelChange }: Props) {
+interface ModelsConfig {
+  text: ModelItem[];
+  tts: ModelItem[];
+  multimodal: ModelItem[];
+}
+
+export function Sidebar({ activeView, onViewChange, model, onModelChange, onOpenConfig }: Props) {
+  const [config, setConfig] = useState<ModelsConfig | null>(null);
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const [ttsModel, setTtsModel] = useState<string>('');
+  const [mmModel, setMmModel] = useState<string>('');
+
+  const loadConfig = () => {
+    fetch('/api/config').then((r) => r.json()).then((data: ModelsConfig) => {
+      setConfig(data);
+      const firstText = data.text.find((m) => m.available);
+      if (firstText && !model) onModelChange(firstText.name);
+      const firstTts = data.tts.find((m) => m.available);
+      if (firstTts) setTtsModel(firstTts.name);
+      const firstMm = data.multimodal.find((m) => m.available);
+      if (firstMm) setMmModel(firstMm.name);
+    }).catch(() => {});
+  };
+
+  useEffect(() => { loadConfig(); }, []);
+
+  const toggleGroup = (group: string) => {
+    setExpandedGroup(expandedGroup === group ? null : group);
+  };
+
+  const groups = [
+    { key: 'text', label: '文本模型', items: config?.text ?? [], selected: model, onSelect: onModelChange },
+    { key: 'tts', label: 'TTS 语音', items: config?.tts ?? [], selected: ttsModel, onSelect: setTtsModel },
+    { key: 'multimodal', label: '语音识别', items: config?.multimodal ?? [], selected: mmModel, onSelect: setMmModel },
+  ];
+
   return (
     <aside className="hidden w-72 flex-col border-r border-slate-200/80 bg-white/70 backdrop-blur-sm md:flex">
       {/* Logo */}
@@ -68,28 +106,73 @@ export function Sidebar({ activeView, onViewChange, model, onModelChange }: Prop
         })}
       </nav>
 
-      {/* Model selector */}
-      <div className="px-4 py-4 border-t border-slate-100">
-        <div className="flex items-center gap-2 mb-2 px-2">
+      {/* Model config panel */}
+      <div className="px-3 py-3 border-t border-slate-100 space-y-1">
+        <div className="flex items-center gap-2 px-3 mb-1">
           <Settings size={12} className="text-slate-400" />
-          <span className="text-xs font-medium text-slate-400">模型</span>
+          <span className="text-xs font-medium text-slate-400">模型配置</span>
+          <button
+            onClick={onOpenConfig}
+            className="ml-auto flex items-center gap-1 text-[10px] text-slate-400 hover:text-accent transition-colors"
+          >
+            <Pencil size={10} />
+            编辑
+          </button>
         </div>
-        <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
-          {MODELS.map((m) => (
-            <button
-              key={m.id}
-              onClick={() => onModelChange(m.id)}
-              className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-all ${
-                model === m.id
-                  ? 'bg-white text-primary shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
+
+        {groups.map((group) => {
+          const isExpanded = expandedGroup === group.key;
+          const currentItem = group.items.find((m) => m.name === group.selected);
+          const availableCount = group.items.filter((m) => m.available).length;
+
+          return (
+            <div key={group.key} className="rounded-lg border border-slate-100 overflow-hidden">
+              <button
+                onClick={() => toggleGroup(group.key)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50 transition-colors"
+              >
+                <span className="text-[11px] font-medium text-slate-500 w-16 shrink-0">{group.label}</span>
+                <span className="text-[11px] text-slate-700 font-medium truncate flex-1">
+                  {currentItem?.name ?? '未配置'}
+                </span>
+                <span className="text-[10px] text-slate-300">{availableCount}/{group.items.length}</span>
+                <ChevronDown size={12} className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isExpanded && (
+                <div className="border-t border-slate-100 bg-slate-50/50 py-1">
+                  {group.items.map((item) => (
+                    <button
+                      key={item.name}
+                      onClick={() => { group.onSelect(item.name); setExpandedGroup(null); }}
+                      disabled={!item.available}
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                        item.available
+                          ? item.name === group.selected
+                            ? 'bg-accent/10'
+                            : 'hover:bg-white'
+                          : 'opacity-40 cursor-not-allowed'
+                      }`}
+                    >
+                      <Circle
+                        size={6}
+                        className={item.available ? 'text-emerald-400 fill-emerald-400' : 'text-slate-300 fill-slate-300'}
+                      />
+                      <span className={`text-[11px] ${item.name === group.selected ? 'text-accent font-medium' : 'text-slate-600'}`}>
+                        {item.name}
+                      </span>
+                      <span className="text-[10px] text-slate-400 ml-auto truncate max-w-[80px]">
+                        {item.model}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
+
     </aside>
   );
 }

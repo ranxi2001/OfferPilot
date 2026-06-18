@@ -1,0 +1,49 @@
+# OfferPilot 模型配置
+# 每个分类可配置多个模型，运行时在侧边栏快速切换
+# env_key 引用 .env 中的 API Key 变量名
+# model / base_url 支持 ${ENV_VAR} 引用
+
+text:
+  - name: Claude
+    provider: anthropic
+    model: ${ANTHROPIC_MODEL}
+    env_key: ANTHROPIC_API_KEY
+    base_url: ${ANTHROPIC_BASE_URL}
+
+  - name: GPT-4o
+    provider: openai
+    model: ${OPENAI_MODEL}
+    env_key: OPENAI_API_KEY
+    base_url: ${OPENAI_BASE_URL}
+
+  - name: DeepSeek
+    provider: openai
+    model: ${DEEPSEEK_MODEL}
+    env_key: DEEPSEEK_API_KEY
+    base_url: ${DEEPSEEK_BASE_URL}
+
+tts:
+  - name: MiMo TTS
+    provider: mimo
+    model: ${MIMO_TTS_MODEL}
+    env_key: MIMO_API_KEY
+    base_url: ${MIMO_BASE_URL}
+
+  - name: OpenAI TTS
+    provider: openai
+    model: ${OPENAI_TTS_MODEL}
+    env_key: OPENAI_API_KEY
+    base_url: ${OPENAI_BASE_URL}
+
+multimodal:
+  - name: MiMo ASR
+    provider: mimo
+    model: ${MIMO_ASR_MODEL}
+    env_key: MIMO_API_KEY
+    base_url: ${MIMO_BASE_URL}
+
+  - name: Whisper
+    provider: openai
+    model: ${OPENAI_ASR_MODEL}
+    env_key: OPENAI_API_KEY
+    base_url: ${OPENAI_BASE_URL}

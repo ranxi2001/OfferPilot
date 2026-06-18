@@ -10,6 +10,7 @@ import { ResumeView } from '@/components/ResumeView';
 import { MatchView } from '@/components/MatchView';
 import { DashboardView } from '@/components/DashboardView';
 import { ExportButton } from '@/components/ExportButton';
+import { ConfigModal } from '@/components/ConfigModal';
 import { Compass, MessageSquare, FileText, BarChart3 } from 'lucide-react';
 
 export default function Home() {
@@ -21,6 +22,7 @@ export default function Home() {
   const [model, setModel] = useState('claude');
   const [activeView, setActiveView] = useState<ViewType>('chat');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -204,6 +206,7 @@ export default function Home() {
               onViewChange={(v) => { setActiveView(v); setMobileMenuOpen(false); }}
               model={model}
               onModelChange={setModel}
+              onOpenConfig={() => { setMobileMenuOpen(false); setConfigOpen(true); }}
             />
           </div>
         </div>
@@ -214,6 +217,7 @@ export default function Home() {
         onViewChange={setActiveView}
         model={model}
         onModelChange={setModel}
+        onOpenConfig={() => setConfigOpen(true)}
       />
 
       <main className="flex flex-1 flex-col min-w-0">
@@ -260,6 +264,8 @@ export default function Home() {
         {activeView === 'match' && <MatchView />}
         {activeView === 'dashboard' && <DashboardView />}
       </main>
+
+      <ConfigModal open={configOpen} onClose={() => setConfigOpen(false)} onSaved={() => {}} />
     </div>
   );
 }
