@@ -1,29 +1,56 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { TrendingUp, Target, Award, Zap } from 'lucide-react';
 import { RadarChart } from './RadarChart';
 
-const DIMENSIONS = [
-  { label: '架构设计', value: 7, max: 10 },
-  { label: '工程实践', value: 6, max: 10 },
-  { label: '模型能力', value: 8, max: 10 },
-  { label: 'RAG 检索', value: 5, max: 10 },
-  { label: '多 Agent', value: 6, max: 10 },
-  { label: '评测体系', value: 4, max: 10 },
-  { label: '全栈交付', value: 7, max: 10 },
-];
+const DIMENSION_LABELS: Record<string, string> = {
+  architecture: '架构设计',
+  engineering: '工程实践',
+  model: '模型能力',
+  rag: 'RAG 检索',
+  'multi-agent': '多 Agent',
+  evaluation: '评测体系',
+  'full-stack': '全栈交付',
+};
 
-const STATS = [
-  { label: '总评分', value: '72', suffix: '/100', icon: Target, color: 'text-accent' },
-  { label: '已诊断', value: '0', suffix: '题', icon: Award, color: 'text-emerald-500' },
-  { label: '薄弱项', value: '2', suffix: '个', icon: Zap, color: 'text-amber-500' },
-  { label: '进步趋势', value: '+12', suffix: '%', icon: TrendingUp, color: 'text-violet-500' },
-];
+interface DashboardData {
+  dimensionScores: { dimension: string; score: number; count: number }[];
+  totalAnswered: number;
+  avgScore: number;
+  weakDimensions: string[];
+  recent: { id: string; dimension: string; score: number; question: string; timestamp: number }[];
+}
 
 export function DashboardView() {
+  const [data, setData] = useState<DashboardData | null>(null);
+
+  useEffect(() => {
+    fetch('/api/diagnosis').then((r) => r.json()).then(setData);
+  }, []);
+
+  const DIMENSIONS = data
+    ? data.dimensionScores.map((d) => ({
+        label: DIMENSION_LABELS[d.dimension] ?? d.dimension,
+        value: d.score || 0,
+        max: 10,
+      }))
+    : Object.values(DIMENSION_LABELS).map((label) => ({ label, value: 0, max: 10 }));
+
+  const totalAnswered = data?.totalAnswered ?? 0;
+  const avgScore = data?.avgScore ?? 0;
+  const weakCount = data?.weakDimensions.length ?? 0;
+
+  const STATS = [
+    { label: '平均分', value: String(avgScore), suffix: '/10', icon: Target, color: 'text-accent' },
+    { label: '已诊断', value: String(totalAnswered), suffix: '题', icon: Award, color: 'text-emerald-500' },
+    { label: '薄弱项', value: String(weakCount), suffix: '个', icon: Zap, color: 'text-amber-500' },
+    { label: '总分', value: String(DIMENSIONS.reduce((s, d) => s + d.value, 0)), suffix: '/70', icon: TrendingUp, color: 'text-violet-500' },
+  ];
+
   const totalScore = DIMENSIONS.reduce((sum, d) => sum + d.value, 0);
   const maxScore = DIMENSIONS.reduce((sum, d) => sum + d.max, 0);
-  const percentage = Math.round((totalScore / maxScore) * 100);
+  const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -106,15 +133,12 @@ export function DashboardView() {
           </div>
         </div>
 
-        {/* Recommendations */}
+        {/* Learning Path */}
         <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-card">
-          <h3 className="text-sm font-semibold text-primary mb-3">改进建议</h3>
+          <h3 className="text-sm font-semibold text-primary mb-1">学习路径推荐</h3>
+          <p className="text-xs text-slate-400 mb-4">根据薄弱维度自动生成，完成后重新诊断更新</p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              { title: '评测体系', advice: '学习 LLM-as-Judge、A/B 测试设计、自动化评测 pipeline', priority: 'high' },
-              { title: 'RAG 检索', advice: '实践 Chunk 策略、Embedding 选型、混合检索 + Rerank', priority: 'high' },
-              { title: '多 Agent', advice: '理解编排模式（DAG/FSM）、通信协议、上下文隔离', priority: 'medium' },
-            ].map((item) => (
+            {getLearningPath(DIMENSIONS).map((item) => (
               <div key={item.title} className={`rounded-xl border p-3 ${
                 item.priority === 'high' ? 'border-amber-200 bg-amber-50/50' : 'border-slate-200 bg-slate-50/50'
               }`}>
@@ -123,13 +147,81 @@ export function DashboardView() {
                     item.priority === 'high' ? 'bg-amber-500' : 'bg-slate-400'
                   }`} />
                   <span className="text-xs font-medium text-slate-700">{item.title}</span>
+                  <span className="text-[10px] text-slate-400 ml-auto">{item.step}</span>
                 </div>
                 <p className="text-[11px] text-slate-500 leading-relaxed">{item.advice}</p>
               </div>
             ))}
           </div>
         </div>
+
+        {/* Recent history */}
+        {data && data.recent.length > 0 && (
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-card">
+            <h3 className="text-sm font-semibold text-primary mb-3">最近诊断记录</h3>
+            <div className="space-y-2">
+              {data.recent.map((r) => (
+                <div key={r.id} className="flex items-center justify-between rounded-lg bg-surface-muted px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-[11px] text-accent font-medium shrink-0">
+                      {DIMENSION_LABELS[r.dimension] ?? r.dimension}
+                    </span>
+                    <span className="text-[11px] text-slate-400 truncate">{r.question}</span>
+                  </div>
+                  <span className={`text-xs font-bold shrink-0 ml-2 ${r.score >= 7 ? 'text-emerald-500' : r.score >= 5 ? 'text-accent' : 'text-amber-500'}`}>
+                    {r.score}/10
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+const LEARNING_ADVICE: Record<string, { steps: string[]; advice: string[] }> = {
+  '架构设计': {
+    steps: ['理解 10 层 Harness 架构', '手写 Agent Loop', '设计 Provider 抽象层'],
+    advice: ['学习 Agent 系统分层设计', '实践 Query Engine 多 Provider 路由', '理解 abort/budget 控制机制'],
+  },
+  '工程实践': {
+    steps: ['Hook 管线设计', '结构化日志', 'CI/CD 流水线'],
+    advice: ['实现 pre-tool/post-tool Hook', '搭建 GitHub Actions CI', '实践 Docker 多阶段构建'],
+  },
+  '模型能力': {
+    steps: ['Prompt 工程', 'Temperature 调参', '模型评估对比'],
+    advice: ['掌握 System Prompt 设计模式', '理解 token 计费与上下文管理', '学会 A/B 对比不同模型效果'],
+  },
+  'RAG 检索': {
+    steps: ['Chunk 策略', 'Embedding 选型', '混合检索 + Rerank'],
+    advice: ['实践固定/语义/递归 Chunk 切分', '对比 BGE-M3 vs OpenAI embedding', '实现 FTS + Vector 混合排序'],
+  },
+  '多 Agent': {
+    steps: ['理解编排模式', '上下文隔离', '通信协议'],
+    advice: ['学习 DAG/FSM 编排模式', '实现 Sub-agent 并发池', '设计 Agent 间的上下文传递机制'],
+  },
+  '评测体系': {
+    steps: ['LLM-as-Judge', '自动化评测', '对比测试'],
+    advice: ['用 LLM 评分模型打分诊断质量', '建立回归测试集', '设计 A/B 测试框架'],
+  },
+  '全栈交付': {
+    steps: ['SSE 流式', '前端状态管理', '端到端部署'],
+    advice: ['实现 Server-Sent Events 实时推送', '掌握 Next.js 14 App Router', '实践 Docker Compose 全栈部署'],
+  },
+};
+
+function getLearningPath(dimensions: { label: string; value: number; max: number }[]) {
+  const sorted = [...dimensions].sort((a, b) => (a.value / a.max) - (b.value / b.max));
+  return sorted.slice(0, 4).map((d, i) => {
+    const advice = LEARNING_ADVICE[d.label];
+    const stepIdx = Math.min(i, (advice?.steps.length ?? 1) - 1);
+    return {
+      title: d.label,
+      priority: d.value / d.max < 0.5 ? 'high' as const : 'medium' as const,
+      step: advice?.steps[stepIdx] ?? '基础学习',
+      advice: advice?.advice[stepIdx] ?? '加强该方向的练习',
+    };
+  });
 }

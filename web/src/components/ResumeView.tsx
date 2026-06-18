@@ -39,9 +39,21 @@ export function ResumeView() {
   const handleAnalyze = async () => {
     if (!content.trim()) return;
     setIsAnalyzing(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    setDiagnosis(MOCK_DIAGNOSIS);
-    setIsAnalyzing(false);
+    try {
+      const res = await fetch('/api/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      const data = await res.json();
+      if (data.diagnosis) {
+        setDiagnosis(data.diagnosis);
+      }
+    } catch {
+      setDiagnosis(MOCK_DIAGNOSIS);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -5,9 +5,11 @@ import { ChatMessage, type Message } from '@/components/ChatMessage';
 import { ChatInput } from '@/components/ChatInput';
 import { Sidebar, type ViewType } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
+import { InterviewView } from '@/components/InterviewView';
 import { ResumeView } from '@/components/ResumeView';
 import { MatchView } from '@/components/MatchView';
 import { DashboardView } from '@/components/DashboardView';
+import { ExportButton } from '@/components/ExportButton';
 import { Compass, MessageSquare, FileText, BarChart3 } from 'lucide-react';
 
 export default function Home() {
@@ -222,6 +224,11 @@ export default function Home() {
           onReset={handleReset}
           onMobileMenu={() => setMobileMenuOpen(true)}
         />
+        {activeView === 'chat' && messages.length > 0 && (
+          <div className="flex justify-end px-5 pt-2">
+            <ExportButton messages={messages} sessionId={sessionId} />
+          </div>
+        )}
 
         {activeView === 'chat' && (
           <>
@@ -248,6 +255,7 @@ export default function Home() {
           </>
         )}
 
+        {activeView === 'interview' && <InterviewView />}
         {activeView === 'resume' && <ResumeView />}
         {activeView === 'match' && <MatchView />}
         {activeView === 'dashboard' && <DashboardView />}

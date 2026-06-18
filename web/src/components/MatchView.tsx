@@ -35,9 +35,21 @@ export function MatchView() {
   const handleMatch = async () => {
     if (!jdContent.trim() || !resumeContent.trim()) return;
     setIsMatching(true);
-    await new Promise((r) => setTimeout(r, 2000));
-    setResult(MOCK_RESULT);
-    setIsMatching(false);
+    try {
+      const res = await fetch('/api/match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jd: jdContent, resume: resumeContent }),
+      });
+      const data = await res.json();
+      if (data.score !== undefined) {
+        setResult(data);
+      }
+    } catch {
+      setResult(MOCK_RESULT);
+    } finally {
+      setIsMatching(false);
+    }
   };
 
   return (

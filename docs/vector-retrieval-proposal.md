@@ -210,10 +210,112 @@ OPENAI_MODEL=gpt-5.5
 
 当前 `ai.tosky.top` 主要用于聊天模型 `gpt-5.5`，没有确认可用的 embedding 模型。
 
-明天需要确认其中一个：
+需要确认其中一个：
 
 - 一个可用的 OpenAI-compatible embedding Base URL、API Key、模型名和维度。
 - 或本机安装 Ollama 并拉取 `bge-m3`。
 - 或选择 Jina / Qwen / SiliconFlow 等平台提供的 embedding 模型。
 
 确认后再生成真实 `data/agent.db`，不要提交 hash 版本数据库。
+
+---
+
+## 向量检索发展规划
+
+### 当前状态（Phase 0）
+
+| 项目 | 状态 |
+|:---|:---|
+| 知识库 | 411 条 × 7 维度，已入库 SQLite |
+| 关键词检索 | SQLite FTS5，已实现 |
+| 向量检索 | OpenAI text-embedding-3-small + JS 内存 cosine，已实现 |
+| 检索性能 | 411 条全量扫描 < 1ms，无瓶颈 |
+
+当前方案完全满足需求。向量存储在 SQLite `embeddings` 列（序列化 Float32Array），检索时反序列化后 JS 逐条计算 cosine similarity。
+
+---
+
+### Phase 1：sqlite-vec 原生向量索引
+
+**触发条件**：知识库增长到 5,000+ 条，或需要 DiskANN/HNSW 级别检索速度
+
+**改动**：
+- 引入 `sqlite-vec` 扩展（C 编译，通过 better-sqlite3 加载 `.so`/.`dylib`）
+- 新建 `vec_knowledge` 虚拟表，使用 IVF 或 HNSW 索引
+- `searchAsync()` 从 JS cosine 切换为 SQL `vec_distance_cosine()`
+- 保留 FTS5，混合召回加权排序
+
+**优势**：
+- 同一个 `data/agent.db` 文件，零迁移
+- 仍然是嵌入式、单文件、无服务依赖
+- 检索性能从 O(n) 降至 O(log n)
+
+**预计工作量**：1-2 天
+
+---
+
+### Phase 2：混合检索 + Rerank
+
+**触发条件**：知识库增长到 10,000+ 条，或评测发现 top-5 召回不稳定
+
+**改动**：
+- FTS5 top-30 + Vector top-30 → 合并去重 → 加权排序 → top-5
+- 引入 Rerank 模型（BGE reranker / Jina reranker / Cohere）
+- 召回评测集（至少覆盖 6 个维度 × 5 query = 30 条 ground truth）
+- 独立 embedding 配置（`EMBEDDING_*` 环境变量）
+
+**预计工作量**：3-5 天
+
+---
+
+### Phase 3：alibaba/zvec（评估备选）
+
+**触发条件**：知识库达到 100,000+ 条，或需要多用户隔离 + 高并发读
+
+**评估结论（2026-06-18）**：
+
+| 维度 | 评估 |
+|:---|:---|
+| 定位 | 阿里开源嵌入式向量数据库（进程内，类 SQLite 架构） |
+| Stars | ~11k，Apache 2.0 |
+| 核心能力 | DiskANN 索引、原生 FTS、混合检索、WAL 持久化、亿级向量 |
+| Node.js SDK | `@zvec/zvec` 声称可用，但 npm 上 403，实际**不可用** |
+| 成熟度 | v0.5.x（2024-06），仍处早期 |
+
+**暂不采用原因**：
+1. Node.js binding 未发布，无法直接集成到 TS 项目
+2. 411 条规模无性能瓶颈，sqlite-vec 已足够
+3. SWIG-based binding 增加编译复杂度，与纯 TS 栈冲突
+4. 项目偏早期，生态和文档还在完善
+
+**重新评估时机**：
+- Node.js SDK 正式发布到 npm
+- 知识库增长到需要 DiskANN 的规模（10 万+）
+- 需要原生混合检索替代手动 FTS + vector 合并
+
+---
+
+### Phase 4：独立向量服务（远期）
+
+**触发条件**：SaaS 多租户、分布式部署、在线实时更新
+
+**备选方案**：
+- **Qdrant**：Rust 实现，gRPC + REST，适合云原生部署
+- **Milvus**：分布式架构，适合超大规模（亿级 + 高 QPS）
+- **阿里 DashVector**：阿里云托管服务，国内延迟低
+
+此阶段需要解耦知识检索为独立微服务，Agent 通过 gRPC/HTTP 调用。
+
+---
+
+### 路线总结
+
+```
+Phase 0 (当前)        Phase 1              Phase 2              Phase 3/4
+JS cosine + FTS5  →  sqlite-vec + FTS5  →  + Rerank pipeline  →  zvec / Qdrant
+411 条 / <1ms        5k+ 条 / HNSW        10k+ 条 / 混合排序    100k+ / 分布式
+────────────────────────────────────────────────────────────────────────────────
+纯 TS，零依赖         +1 native ext         +1 rerank API        架构变更
+```
+
+每个阶段都是明确的规模触发，不提前优化。

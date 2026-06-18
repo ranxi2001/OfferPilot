@@ -1,8 +1,8 @@
 'use client';
 
-import { MessageSquare, FileText, GitCompare, BarChart3, Compass, Settings } from 'lucide-react';
+import { MessageSquare, FileText, GitCompare, BarChart3, Compass, Settings, Mic } from 'lucide-react';
 
-export type ViewType = 'chat' | 'resume' | 'match' | 'dashboard';
+export type ViewType = 'chat' | 'interview' | 'resume' | 'match' | 'dashboard';
 
 interface Props {
   activeView: ViewType;
@@ -13,6 +13,7 @@ interface Props {
 
 const NAV_ITEMS: { id: ViewType; label: string; icon: typeof MessageSquare; desc: string }[] = [
   { id: 'chat', label: '面试诊断', icon: MessageSquare, desc: '对话式诊断' },
+  { id: 'interview', label: '模拟面试', icon: Mic, desc: '逐题实时反馈' },
   { id: 'resume', label: '简历分析', icon: FileText, desc: '段落级优化' },
   { id: 'match', label: 'JD 匹配', icon: GitCompare, desc: '关键词覆盖' },
   { id: 'dashboard', label: '能力雷达', icon: BarChart3, desc: '7 维度评估' },

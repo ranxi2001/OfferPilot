@@ -1,6 +1,6 @@
 'use client';
 
-import { MessageSquare, FileText, GitCompare, BarChart3, RotateCcw, Menu } from 'lucide-react';
+import { MessageSquare, FileText, GitCompare, BarChart3, Mic, RotateCcw, Menu } from 'lucide-react';
 import type { ViewType } from './Sidebar';
 
 interface Props {
@@ -13,6 +13,7 @@ interface Props {
 
 const VIEW_TITLES: Record<ViewType, { title: string; icon: typeof MessageSquare }> = {
   chat: { title: '面试诊断', icon: MessageSquare },
+  interview: { title: '模拟面试', icon: Mic },
   resume: { title: '简历分析', icon: FileText },
   match: { title: 'JD 匹配', icon: GitCompare },
   dashboard: { title: '能力雷达', icon: BarChart3 },
