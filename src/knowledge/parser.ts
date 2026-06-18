@@ -88,6 +88,7 @@ function detectDimension(path: string): string {
     '13-project': 'architecture',
     '14-company': 'architecture',
     '15-agent': 'architecture',
+    'coaching-methodology': 'coaching',
   };
 
   for (const [prefix, dim] of Object.entries(dimensionMap)) {

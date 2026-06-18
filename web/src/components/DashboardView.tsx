@@ -20,6 +20,7 @@ interface DashboardData {
   avgScore: number;
   weakDimensions: string[];
   recent: { id: string; dimension: string; score: number; question: string; timestamp: number }[];
+  reviewPriority?: { dimension: string; urgency: number; daysUntilReview: number | null }[];
 }
 
 export function DashboardView() {
@@ -154,6 +155,33 @@ export function DashboardView() {
             ))}
           </div>
         </div>
+
+        {/* SM-2 Review Priority */}
+        {data && data.reviewPriority && data.reviewPriority.length > 0 && (
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-card">
+            <h3 className="text-sm font-semibold text-primary mb-1">间隔复习提醒</h3>
+            <p className="text-xs text-slate-400 mb-4">基于 SM-2 算法自动排期，优先复习薄弱+到期维度</p>
+            <div className="space-y-2">
+              {data.reviewPriority.slice(0, 5).map((r) => (
+                <div key={r.dimension} className="flex items-center justify-between rounded-lg bg-surface-muted px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2 w-2 rounded-full ${
+                      r.daysUntilReview !== null && r.daysUntilReview <= 0 ? 'bg-red-400' : r.urgency > 3 ? 'bg-amber-400' : 'bg-slate-300'
+                    }`} />
+                    <span className="text-xs font-medium text-slate-700">
+                      {DIMENSION_LABELS[r.dimension] ?? r.dimension}
+                    </span>
+                  </div>
+                  <span className={`text-[11px] ${
+                    r.daysUntilReview !== null && r.daysUntilReview <= 0 ? 'text-red-500 font-medium' : 'text-slate-400'
+                  }`}>
+                    {r.daysUntilReview === null ? '—' : r.daysUntilReview <= 0 ? '今天复习' : `${r.daysUntilReview} 天后`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Recent history */}
         {data && data.recent.length > 0 && (
