@@ -57,6 +57,8 @@ export class ClaudeProvider implements LLMProvider {
             yield { type: 'text_delta', content: event.delta.text };
           } else if (event.delta.type === 'input_json_delta') {
             yield { type: 'tool_use_delta', input: event.delta.partial_json };
+          } else if ((event.delta as any).type === 'thinking_delta') {
+            yield { type: 'thinking_delta', content: (event.delta as any).thinking };
           }
           break;
 

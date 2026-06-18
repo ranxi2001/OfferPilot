@@ -1,8 +1,9 @@
 export interface SSEEvent {
-  type: 'text_delta' | 'tool_call' | 'error' | 'done';
+  type: 'text_delta' | 'thinking_delta' | 'tool_call' | 'tool_result' | 'error' | 'done';
   content?: string;
   name?: string;
   message?: string;
+  result?: string;
 }
 
 export async function* readSSE(response: Response): AsyncIterable<SSEEvent> {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { Mic, Paperclip, Send, Square } from 'lucide-react';
+import { Mic, Paperclip, Send, Square, Sparkles } from 'lucide-react';
 
 interface Props {
   onSend: (message: string) => void;
@@ -41,7 +41,7 @@ export function ChatInput({ onSend, onAudioAnswer, disabled, isTranscribing }: P
     setInput(e.target.value);
     const el = e.target;
     el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
   };
 
   const handleAudioFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -57,7 +57,6 @@ export function ChatInput({ onSend, onAudioAnswer, disabled, isTranscribing }: P
       stopRecording();
       return;
     }
-
     if (!onAudioAnswer || disabled || isTranscribing) return;
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -84,7 +83,6 @@ export function ChatInput({ onSend, onAudioAnswer, disabled, isTranscribing }: P
     processorRef.current?.disconnect();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     void audioContextRef.current?.close();
-
     processorRef.current = null;
     streamRef.current = null;
     audioContextRef.current = null;
@@ -95,54 +93,68 @@ export function ChatInput({ onSend, onAudioAnswer, disabled, isTranscribing }: P
   };
 
   return (
-    <div className="border-t border-zinc-800 bg-surface p-4">
-      <div className="mx-auto flex max-w-3xl items-end gap-3">
-        <input
-          ref={fileRef}
-          type="file"
-          accept="audio/*"
-          className="hidden"
-          onChange={handleAudioFile}
-        />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={disabled || isTranscribing}
-          title="上传录音"
-          className="flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-700 text-zinc-300 transition hover:border-primary hover:text-primary disabled:opacity-30"
-        >
-          <Paperclip size={18} />
-        </button>
-        <button
-          type="button"
-          onClick={toggleRecording}
-          disabled={disabled || isTranscribing}
-          title={isRecording ? '停止录音' : '开始录音'}
-          className={`flex h-11 w-11 items-center justify-center rounded-xl border transition disabled:opacity-30 ${
-            isRecording
-              ? 'border-red-500 bg-red-500/15 text-red-300'
-              : 'border-zinc-700 text-zinc-300 hover:border-primary hover:text-primary'
-          }`}
-        >
-          {isRecording ? <Square size={16} /> : <Mic size={18} />}
-        </button>
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={handleInput}
-          onKeyDown={handleKeyDown}
-          placeholder={isTranscribing ? '正在转写录音...' : '输入面试题或你的回答...'}
-          disabled={disabled || isTranscribing}
-          rows={1}
-          className="flex-1 resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition focus:border-primary disabled:opacity-50"
-        />
-        <button
-          onClick={handleSubmit}
-          disabled={disabled || isTranscribing || !input.trim()}
-          className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-white transition hover:bg-primary-dark disabled:opacity-30"
-        >
-          <Send size={18} />
-        </button>
+    <div className="border-t border-slate-200/80 bg-white/80 backdrop-blur-sm px-4 py-4">
+      <div className="mx-auto max-w-3xl">
+        <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-white shadow-card px-3 py-2 focus-within:border-accent/50 focus-within:shadow-glow transition-all">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="audio/*"
+            className="hidden"
+            onChange={handleAudioFile}
+          />
+
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={disabled || isTranscribing}
+            title="上传录音"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-accent disabled:opacity-30 transition-all"
+          >
+            <Paperclip size={16} />
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleRecording}
+            disabled={disabled || isTranscribing}
+            title={isRecording ? '停止录音' : '开始录音'}
+            className={`flex h-9 w-9 items-center justify-center rounded-lg transition-all disabled:opacity-30 ${
+              isRecording
+                ? 'bg-red-50 text-red-500 hover:bg-red-100'
+                : 'text-slate-400 hover:bg-slate-100 hover:text-accent'
+            }`}
+          >
+            {isRecording ? <Square size={14} /> : <Mic size={16} />}
+          </button>
+
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            placeholder={isTranscribing ? '正在转写录音...' : '输入面试题或你的回答...'}
+            disabled={disabled || isTranscribing}
+            rows={1}
+            className="flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm text-slate-700 placeholder-slate-400 outline-none disabled:opacity-50"
+          />
+
+          <button
+            onClick={handleSubmit}
+            disabled={disabled || isTranscribing || !input.trim()}
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent text-white shadow-sm hover:bg-accent-dark disabled:opacity-30 disabled:shadow-none transition-all"
+          >
+            {disabled ? (
+              <Sparkles size={16} className="animate-pulse-slow" />
+            ) : (
+              <Send size={15} />
+            )}
+          </button>
+        </div>
+
+        <p className="mt-2 text-center text-[11px] text-slate-400">
+          Shift+Enter 换行 · 支持语音输入 · 回答越详细，诊断越精准
+        </p>
       </div>
     </div>
   );

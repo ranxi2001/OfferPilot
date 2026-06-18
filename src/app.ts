@@ -61,6 +61,7 @@ const SYSTEM_PROMPT = `你是 OfferPilot，一个全链路求职辅导 Agent，�
 export interface AppOptions {
   model?: string;
   onTextDelta?: (text: string) => void;
+  onThinkingDelta?: (text: string) => void;
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string) => void;
 }
@@ -120,6 +121,7 @@ export function createApp(opts?: AppOptions) {
     hookPipeline,
     defaultModel: opts?.model,
     onTextDelta: opts?.onTextDelta,
+    onThinkingDelta: opts?.onThinkingDelta,
     onToolCall: opts?.onToolCall,
     onToolResult: opts?.onToolResult,
   });

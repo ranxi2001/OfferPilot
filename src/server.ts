@@ -110,6 +110,7 @@ const server = createServer(async (req, res) => {
       const app = createApp({
         model: body.model,
         onTextDelta: (text) => send({ type: 'text_delta', content: text }),
+        onThinkingDelta: (text) => send({ type: 'thinking_delta', content: text }),
         onToolCall: (name, input) => send({ type: 'tool_call', name, input }),
         onToolResult: (name, result) => send({ type: 'tool_result', name, result }),
       });

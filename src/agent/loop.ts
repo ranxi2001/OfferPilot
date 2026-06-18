@@ -21,6 +21,7 @@ export interface AgentConfig {
   defaultModel?: string;
   abortSignal?: AbortSignal;
   onTextDelta?: (text: string) => void;
+  onThinkingDelta?: (text: string) => void;
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string) => void;
   onPermissionRequest?: (toolName: string, input: Record<string, unknown>) => Promise<boolean>;
@@ -94,6 +95,7 @@ export class AgentLoop {
         tools: toolRegistry.listSchemas(),
         systemPrompt,
         onTextDelta: this.config.onTextDelta,
+        onThinkingDelta: this.config.onThinkingDelta,
       };
 
       const response: ParsedResponse = await queryEngine.query(params);

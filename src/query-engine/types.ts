@@ -39,6 +39,7 @@ export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens';
 
 export type StreamEvent =
   | { type: 'text_delta'; content: string }
+  | { type: 'thinking_delta'; content: string }
   | { type: 'tool_use_start'; id: string; name: string }
   | { type: 'tool_use_delta'; input: string }
   | { type: 'tool_use_end' }
@@ -63,6 +64,7 @@ export interface QueryParams {
   useCache?: boolean;
   cacheTtl?: number;
   onTextDelta?: (text: string) => void;
+  onThinkingDelta?: (text: string) => void;
 }
 
 export interface LLMProvider {

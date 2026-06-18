@@ -39,6 +39,8 @@ export class QueryEngine {
         collector.feed(event);
         if (event.type === 'text_delta' && params.onTextDelta) {
           params.onTextDelta(event.content);
+        } else if (event.type === 'thinking_delta' && params.onThinkingDelta) {
+          params.onThinkingDelta(event.content);
         }
       }
 
