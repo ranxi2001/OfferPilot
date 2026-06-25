@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { MessageSquare, FileText, GitCompare, BarChart3, Compass, Settings, Mic, ChevronDown, Circle, Pencil } from 'lucide-react';
+import { MessageSquare, FileText, GitCompare, BarChart3, Settings, Mic, ChevronDown, Circle, Pencil } from 'lucide-react';
 
 export type ViewType = 'chat' | 'interview' | 'resume' | 'match' | 'dashboard';
 
@@ -44,11 +44,11 @@ export function Sidebar({ activeView, onViewChange, model, onModelChange, onOpen
     fetch('/api/config').then((r) => r.json()).then((data: ModelsConfig) => {
       setConfig(data);
       const firstText = data.text.find((m) => m.available);
-      if (firstText && !model) onModelChange(firstText.name);
+      if (firstText && !model) onModelChange(firstText.model || firstText.name);
       const firstTts = data.tts.find((m) => m.available);
-      if (firstTts) setTtsModel(firstTts.name);
+      if (firstTts) setTtsModel(firstTts.model || firstTts.name);
       const firstMm = data.multimodal.find((m) => m.available);
-      if (firstMm) setMmModel(firstMm.name);
+      if (firstMm) setMmModel(firstMm.model || firstMm.name);
     }).catch(() => {});
   };
 
@@ -68,8 +68,12 @@ export function Sidebar({ activeView, onViewChange, model, onModelChange, onOpen
     <aside className="hidden w-72 flex-col border-r border-slate-200/80 bg-white/70 backdrop-blur-sm md:flex">
       {/* Logo */}
       <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-100">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-navy-900 to-accent shadow-card">
-          <Compass size={18} className="text-white" />
+        <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-white shadow-card ring-1 ring-slate-100">
+          <img
+            src="/brand/offerpilot-icon-192.png"
+            alt="OfferPilot"
+            className="h-full w-full object-cover"
+          />
         </div>
         <div>
           <h1 className="text-base font-bold text-primary">OfferPilot</h1>
@@ -122,7 +126,7 @@ export function Sidebar({ activeView, onViewChange, model, onModelChange, onOpen
 
         {groups.map((group) => {
           const isExpanded = expandedGroup === group.key;
-          const currentItem = group.items.find((m) => m.name === group.selected);
+          const currentItem = group.items.find((m) => (m.model || m.name) === group.selected || m.name === group.selected);
           const availableCount = group.items.filter((m) => m.available).length;
 
           return (
@@ -144,11 +148,11 @@ export function Sidebar({ activeView, onViewChange, model, onModelChange, onOpen
                   {group.items.map((item) => (
                     <button
                       key={item.name}
-                      onClick={() => { group.onSelect(item.name); setExpandedGroup(null); }}
+                      onClick={() => { group.onSelect(item.model || item.name); setExpandedGroup(null); }}
                       disabled={!item.available}
                       className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
                         item.available
-                          ? item.name === group.selected
+                          ? (item.model || item.name) === group.selected || item.name === group.selected
                             ? 'bg-accent/10'
                             : 'hover:bg-white'
                           : 'opacity-40 cursor-not-allowed'
@@ -158,7 +162,7 @@ export function Sidebar({ activeView, onViewChange, model, onModelChange, onOpen
                         size={6}
                         className={item.available ? 'text-emerald-400 fill-emerald-400' : 'text-slate-300 fill-slate-300'}
                       />
-                      <span className={`text-[11px] ${item.name === group.selected ? 'text-accent font-medium' : 'text-slate-600'}`}>
+                      <span className={`text-[11px] ${(item.model || item.name) === group.selected || item.name === group.selected ? 'text-accent font-medium' : 'text-slate-600'}`}>
                         {item.name}
                       </span>
                       <span className="text-[10px] text-slate-400 ml-auto truncate max-w-[80px]">

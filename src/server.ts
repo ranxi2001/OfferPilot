@@ -56,6 +56,8 @@ function cors(res: ServerResponse): void {
 
 const db = openDatabase(DB_PATH);
 initSchema(db);
+const sharedApp = createApp({});
+const { sessionManager, memoryStore } = sharedApp;
 
 const server = createServer(async (req, res) => {
   cors(res);
@@ -89,7 +91,7 @@ const server = createServer(async (req, res) => {
     }
 
     res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
@@ -109,6 +111,8 @@ const server = createServer(async (req, res) => {
     try {
       const app = createApp({
         model: body.model,
+        sessionManager,
+        memoryStore,
         onTextDelta: (text) => send({ type: 'text_delta', content: text }),
         onThinkingDelta: (text) => send({ type: 'thinking_delta', content: text }),
         onToolCall: (name, input) => send({ type: 'tool_call', name, input }),
@@ -116,7 +120,7 @@ const server = createServer(async (req, res) => {
       });
 
       const session = body.sessionId
-        ? app.sessionManager.get(body.sessionId) ?? app.sessionManager.create()
+        ? sessionManager.get(body.sessionId) ?? sessionManager.create()
         : app.sessionManager.create();
 
       send({ type: 'session', sessionId: session.id });
@@ -141,8 +145,7 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    const app = createApp({});
-    const session = app.sessionManager.create();
+    const session = sessionManager.create();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ sessionId: session.id }));
     return;

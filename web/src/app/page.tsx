@@ -19,7 +19,7 @@ export default function Home() {
   const [isThinking, setIsThinking] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [model, setModel] = useState('claude');
+  const [model, setModel] = useState('');
   const [activeView, setActiveView] = useState<ViewType>('chat');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
@@ -169,7 +169,20 @@ export default function Home() {
         ),
       );
 
-      await sendMessage(`请诊断我的这段录音回答：\n\n${transcript}`, { showUserMessage: false });
+      const diagnosticPrompt = [
+        '请基于下面这段录音转写做面试回答诊断。',
+        '',
+        '要求：',
+        '1. 先识别并复述“面试官问题”和“候选人回答”。',
+        '2. 只围绕识别出的面试官问题评分，不要把回答里的关键词当成新的题目。',
+        '3. 如果转写里没有明确问题，请先指出信息不足，再基于可见内容谨慎诊断。',
+        '4. 输出评分、考察维度、亮点、差距、改进建议和参考回答。',
+        '',
+        '录音转写：',
+        transcript,
+      ].join('\n');
+
+      await sendMessage(diagnosticPrompt, { showUserMessage: false });
 
       setMessages((prev) =>
         prev.map((m) =>
@@ -280,8 +293,12 @@ function WelcomeScreen({ onSend }: { onSend: (msg: string) => void }) {
 
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center animate-fade-in">
-      <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-accent to-cyan shadow-elevated">
-        <Compass size={28} className="text-white" />
+      <div className="mb-6 flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-elevated ring-1 ring-slate-100">
+        <img
+          src="/brand/offerpilot-icon-192.png"
+          alt="OfferPilot"
+          className="h-full w-full object-cover"
+        />
       </div>
 
       <h1 className="mb-2 text-2xl font-bold text-primary">面试诊断 Agent</h1>

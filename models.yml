@@ -10,14 +10,14 @@ text:
     env_key: ANTHROPIC_API_KEY
     base_url: ${ANTHROPIC_BASE_URL}
 
-  - name: GPT-4o
+  - name: GPT
     provider: openai
     model: ${OPENAI_MODEL}
     env_key: OPENAI_API_KEY
     base_url: ${OPENAI_BASE_URL}
 
   - name: DeepSeek
-    provider: openai
+    provider: deepseek
     model: ${DEEPSEEK_MODEL}
     env_key: DEEPSEEK_API_KEY
     base_url: ${DEEPSEEK_BASE_URL}
