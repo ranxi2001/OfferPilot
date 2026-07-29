@@ -22,13 +22,14 @@ services:
 
   web:
     build:
-      context: ./web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: web/Dockerfile
     ports:
       - "3000:3000"
     environment:
       - BACKEND_URL=http://api:3001
       - OFFERPILOT_API_KEY=${OFFERPILOT_API_KEY}
+      - OFFERPILOT_PROJECT_ROOT=/app
     depends_on:
       - api
     restart: unless-stopped

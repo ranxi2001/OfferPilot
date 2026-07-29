@@ -40,9 +40,9 @@ export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens';
 export type StreamEvent =
   | { type: 'text_delta'; content: string }
   | { type: 'thinking_delta'; content: string }
-  | { type: 'tool_use_start'; id: string; name: string }
-  | { type: 'tool_use_delta'; input: string }
-  | { type: 'tool_use_end' }
+  | { type: 'tool_use_start'; id: string; name: string; index?: number }
+  | { type: 'tool_use_delta'; input: string; index?: number }
+  | { type: 'tool_use_end'; index?: number }
   | { type: 'message_end'; usage: TokenUsage; stopReason: StopReason };
 
 export interface ParsedResponse {
@@ -63,6 +63,7 @@ export interface QueryParams {
   systemPrompt?: string;
   useCache?: boolean;
   cacheTtl?: number;
+  abortSignal?: AbortSignal;
   onTextDelta?: (text: string) => void;
   onThinkingDelta?: (text: string) => void;
 }

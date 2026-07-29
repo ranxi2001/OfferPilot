@@ -33,6 +33,7 @@ export class QueryEngine {
         maxTokens: params.maxTokens,
         temperature: params.temperature,
         systemPrompt: params.systemPrompt,
+        abortSignal: params.abortSignal,
       });
 
       for await (const event of stream) {
@@ -58,6 +59,7 @@ export class QueryEngine {
       maxTokens: params.maxTokens,
       temperature: params.temperature,
       systemPrompt: params.systemPrompt,
+      abortSignal: params.abortSignal,
     });
 
     for await (const event of stream) {

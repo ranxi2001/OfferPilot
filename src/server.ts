@@ -1,5 +1,6 @@
 import './env.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { createApp } from './app.js';
 import { openDatabase, initSchema } from './db/index.js';
 import { transcribeAudio, synthesizeSpeech } from './realtime/mimo-audio.js';
@@ -10,6 +11,24 @@ const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const API_KEY = process.env.OFFERPILOT_API_KEY;
 const DB_PATH = resolve(process.env.DB_PATH ?? 'data/agent.db');
 const HEARTBEAT_INTERVAL = 15000;
+const AUTH_REQUIRED = process.env.NODE_ENV === 'production' || process.env.OFFERPILOT_REQUIRE_AUTH === 'true';
+const MAX_JSON_BODY_BYTES = readPositiveIntEnv('OFFERPILOT_MAX_JSON_BODY_BYTES', 256 * 1024);
+const MAX_AUDIO_BODY_BYTES = readPositiveIntEnv('OFFERPILOT_MAX_AUDIO_BODY_BYTES', 25 * 1024 * 1024);
+const MAX_MESSAGE_CHARS = readPositiveIntEnv('OFFERPILOT_MAX_MESSAGE_CHARS', 20000);
+const MAX_TTS_TEXT_CHARS = readPositiveIntEnv('OFFERPILOT_MAX_TTS_TEXT_CHARS', 5000);
+
+class BodyTooLargeError extends Error {
+  constructor(readonly maxBytes: number) {
+    super(`Request body exceeds ${maxBytes} bytes`);
+  }
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function errorMessage(err: unknown): string {
   if (err instanceof Error) {
@@ -23,35 +42,108 @@ function errorMessage(err: unknown): string {
 }
 
 function validateAuth(req: IncomingMessage): boolean {
-  if (!API_KEY) return true;
+  if (!API_KEY) return !AUTH_REQUIRED;
   const authHeader = req.headers.authorization;
   if (!authHeader) return false;
   const token = authHeader.replace(/^Bearer\s+/i, '');
-  return token === API_KEY;
+  return safeEqual(token, API_KEY);
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+function safeEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
+
+function authError(): { error: string } {
+  return API_KEY ? { error: 'Unauthorized' } : { error: 'Server authentication is not configured' };
+}
+
+function writeJson(res: ServerResponse, status: number, payload: Record<string, unknown>): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(payload));
+}
+
+function writeReadError(res: ServerResponse, err: unknown, fallback: string): void {
+  if (err instanceof BodyTooLargeError) {
+    writeJson(res, 413, { error: err.message });
+    return;
+  }
+  writeJson(res, 400, { error: fallback });
+}
+
+function readBody(req: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString()));
+    let total = 0;
+    let rejected = false;
+    req.on('data', (chunk) => {
+      if (rejected) return;
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buf.length;
+      if (total > maxBytes) {
+        rejected = true;
+        reject(new BodyTooLargeError(maxBytes));
+        return;
+      }
+      chunks.push(buf);
+    });
+    req.on('end', () => {
+      if (!rejected) resolve(Buffer.concat(chunks).toString());
+    });
     req.on('error', reject);
   });
 }
 
-function readBodyBuffer(req: IncomingMessage): Promise<Buffer> {
+function readBodyBuffer(req: IncomingMessage, maxBytes = MAX_AUDIO_BODY_BYTES): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
+    let total = 0;
+    let rejected = false;
+    req.on('data', (chunk) => {
+      if (rejected) return;
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buf.length;
+      if (total > maxBytes) {
+        rejected = true;
+        reject(new BodyTooLargeError(maxBytes));
+        return;
+      }
+      chunks.push(buf);
+    });
+    req.on('end', () => {
+      if (!rejected) resolve(Buffer.concat(chunks));
+    });
     req.on('error', reject);
   });
 }
 
-function cors(res: ServerResponse): void {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+function cors(req: IncomingMessage, res: ServerResponse): boolean {
+  const origin = req.headers.origin;
+  if (origin && !isAllowedOrigin(origin)) {
+    return false;
+  }
+
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-File-Name');
+  return true;
+}
+
+function isAllowedOrigin(origin: string): boolean {
+  const configured = process.env.OFFERPILOT_ALLOWED_ORIGINS?.split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const allowed = configured?.length ? configured : [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ];
+
+  return allowed.includes(origin) || (process.env.NODE_ENV !== 'production' && allowed.includes('*'));
 }
 
 const db = openDatabase(DB_PATH);
@@ -60,7 +152,10 @@ const sharedApp = createApp({});
 const { sessionManager, memoryStore } = sharedApp;
 
 const server = createServer(async (req, res) => {
-  cors(res);
+  if (!cors(req, res)) {
+    writeJson(res, 403, { error: 'Origin is not allowed' });
+    return;
+  }
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -70,23 +165,25 @@ const server = createServer(async (req, res) => {
 
   if (req.url === '/api/chat' && req.method === 'POST') {
     if (!validateAuth(req)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      writeJson(res, 401, authError());
       return;
     }
 
     let body: { message?: string; sessionId?: string; model?: string };
     try {
       body = JSON.parse(await readBody(req));
-    } catch {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid JSON' }));
+    } catch (err) {
+      writeReadError(res, err, 'Invalid JSON');
       return;
     }
 
     if (!body.message) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'message is required' }));
+      writeJson(res, 400, { error: 'message is required' });
+      return;
+    }
+
+    if (body.message.length > MAX_MESSAGE_CHARS) {
+      writeJson(res, 413, { error: `message exceeds ${MAX_MESSAGE_CHARS} characters` });
       return;
     }
 
@@ -96,8 +193,14 @@ const server = createServer(async (req, res) => {
       Connection: 'keep-alive',
     });
 
+    const abortController = new AbortController();
+    const onClose = () => abortController.abort();
+    res.on('close', onClose);
+
     const send = (event: Record<string, unknown>) => {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      if (!res.destroyed && !res.writableEnded) {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
     };
 
     const heartbeat = setInterval(() => {
@@ -117,6 +220,7 @@ const server = createServer(async (req, res) => {
         onThinkingDelta: (text) => send({ type: 'thinking_delta', content: text }),
         onToolCall: (name, input) => send({ type: 'tool_call', name, input }),
         onToolResult: (name, result) => send({ type: 'tool_result', name, result }),
+        abortSignal: abortController.signal,
       });
 
       const session = body.sessionId
@@ -132,37 +236,36 @@ const server = createServer(async (req, res) => {
       send({ type: 'error', message: (err as Error).message });
     } finally {
       clearInterval(heartbeat);
-      res.write('data: [DONE]\n\n');
-      res.end();
+      res.off('close', onClose);
+      if (!res.destroyed && !res.writableEnded) {
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
     }
     return;
   }
 
   if (req.url === '/api/session' && req.method === 'POST') {
     if (!validateAuth(req)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      writeJson(res, 401, authError());
       return;
     }
 
     const session = sessionManager.create();
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ sessionId: session.id }));
+    writeJson(res, 200, { sessionId: session.id });
     return;
   }
 
   if (req.url === '/api/transcribe' && req.method === 'POST') {
     if (!validateAuth(req)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      writeJson(res, 401, authError());
       return;
     }
 
     try {
       const audio = await readBodyBuffer(req);
       if (audio.length === 0) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'audio body is required' }));
+        writeJson(res, 400, { error: 'audio body is required' });
         return;
       }
 
@@ -175,28 +278,40 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
     } catch (err) {
+      if (err instanceof BodyTooLargeError) {
+        writeJson(res, 413, { error: err.message });
+        return;
+      }
       logger.error('transcribe failed', { error: errorMessage(err) });
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: errorMessage(err) }));
+      writeJson(res, 500, { error: errorMessage(err) });
     }
     return;
   }
 
   if (req.url === '/api/tts' && req.method === 'POST') {
     if (!validateAuth(req)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      writeJson(res, 401, authError());
+      return;
+    }
+
+    let body: { text?: string; voice?: string; format?: string };
+    try {
+      body = JSON.parse(await readBody(req)) as { text?: string; voice?: string; format?: string };
+    } catch (err) {
+      writeReadError(res, err, 'Invalid JSON');
+      return;
+    }
+
+    if (!body.text) {
+      writeJson(res, 400, { error: 'text is required' });
+      return;
+    }
+    if (body.text.length > MAX_TTS_TEXT_CHARS) {
+      writeJson(res, 413, { error: `text exceeds ${MAX_TTS_TEXT_CHARS} characters` });
       return;
     }
 
     try {
-      const body = JSON.parse(await readBody(req)) as { text?: string; voice?: string; format?: string };
-      if (!body.text) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'text is required' }));
-        return;
-      }
-
       const result = await synthesizeSpeech({
         text: body.text,
         voice: body.voice,
@@ -210,8 +325,7 @@ const server = createServer(async (req, res) => {
       res.end(result.audio);
     } catch (err) {
       logger.error('tts failed', { error: errorMessage(err) });
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: errorMessage(err) }));
+      writeJson(res, 500, { error: errorMessage(err) });
     }
     return;
   }

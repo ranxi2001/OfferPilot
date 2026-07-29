@@ -71,6 +71,7 @@ export interface AppOptions {
   onThinkingDelta?: (text: string) => void;
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string) => void;
+  abortSignal?: AbortSignal;
 }
 
 const RECOMMENDED_OPENAI_MODEL = 'gpt-5.5';
@@ -135,6 +136,7 @@ export function createApp(opts?: AppOptions) {
     onThinkingDelta: opts?.onThinkingDelta,
     onToolCall: opts?.onToolCall,
     onToolResult: opts?.onToolResult,
+    abortSignal: opts?.abortSignal,
   });
 
   return { agent, sessionManager, queryEngine, toolRegistry, memoryStore, commandParser, hookPipeline, subAgentRuntime };

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readJsonBody } from '@/lib/api-security';
 
 export async function POST(req: NextRequest) {
-  const { jd, resume } = (await req.json()) as { jd?: string; resume?: string };
+  const parsed = await readJsonBody<{ jd?: string; resume?: string }>(req);
+  if (parsed.response) return parsed.response;
+  const { jd, resume } = parsed.data;
 
   if (!jd?.trim() || !resume?.trim()) {
     return NextResponse.json({ error: 'jd and resume are required' }, { status: 400 });

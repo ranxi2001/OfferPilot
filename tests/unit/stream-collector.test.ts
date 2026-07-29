@@ -75,4 +75,36 @@ describe('StreamCollector', () => {
     const result = collector.result();
     expect(result.toolCalls![0].input).toEqual({ _raw: 'not json' });
   });
+
+  it('should keep indexed parallel tool inputs separate', () => {
+    const collector = new StreamCollector();
+
+    collector.feed({ type: 'tool_use_start', id: 'tc_1', name: 'search_knowledge', index: 0 });
+    collector.feed({ type: 'tool_use_start', id: 'tc_2', name: 'diagnose_answer', index: 1 });
+    collector.feed({ type: 'tool_use_delta', input: '{"query":', index: 0 });
+    collector.feed({ type: 'tool_use_delta', input: '{"question":', index: 1 });
+    collector.feed({ type: 'tool_use_delta', input: '"react"}', index: 0 });
+    collector.feed({ type: 'tool_use_delta', input: '"q","answer":"a"}', index: 1 });
+    collector.feed({ type: 'tool_use_end', index: 0 });
+    collector.feed({ type: 'tool_use_end', index: 1 });
+    collector.feed({
+      type: 'message_end',
+      usage: { inputTokens: 20, outputTokens: 15 },
+      stopReason: 'tool_use',
+    });
+
+    const result = collector.result();
+    expect(result.type).toBe('tool_use');
+    expect(result.toolCalls).toHaveLength(2);
+    expect(result.toolCalls![0]).toMatchObject({
+      id: 'tc_1',
+      name: 'search_knowledge',
+      input: { query: 'react' },
+    });
+    expect(result.toolCalls![1]).toMatchObject({
+      id: 'tc_2',
+      name: 'diagnose_answer',
+      input: { question: 'q', answer: 'a' },
+    });
+  });
 });

@@ -1,34 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readJsonBody, readPositiveIntEnv } from '@/lib/api-security';
 
 const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:3001';
 const API_KEY = process.env.OFFERPILOT_API_KEY;
 const HEARTBEAT_INTERVAL = 15000;
 const USE_MOCK = process.env.OFFERPILOT_USE_MOCK === 'true';
-
-function validateAuth(req: NextRequest): boolean {
-  if (!API_KEY) return true;
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader) return false;
-  const token = authHeader.replace(/^Bearer\s+/i, '');
-  return token === API_KEY;
-}
+const MAX_MESSAGE_CHARS = readPositiveIntEnv('OFFERPILOT_MAX_MESSAGE_CHARS', 20000);
 
 export async function POST(req: NextRequest) {
-  if (!validateAuth(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   let body: { message?: string; sessionId?: string; model?: string };
-  try {
-    body = (await req.json()) as { message?: string; sessionId?: string; model?: string };
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-  }
+  const parsed = await readJsonBody<{ message?: string; sessionId?: string; model?: string }>(req);
+  if (parsed.response) return parsed.response;
+  body = parsed.data;
 
   const { message, sessionId, model } = body as { message?: string; sessionId?: string; model?: string };
 
   if (!message) {
     return NextResponse.json({ error: 'message is required' }, { status: 400 });
+  }
+  if (message.length > MAX_MESSAGE_CHARS) {
+    return NextResponse.json({ error: `message exceeds ${MAX_MESSAGE_CHARS} characters` }, { status: 413 });
   }
 
   if (USE_MOCK) {
@@ -44,6 +35,7 @@ export async function POST(req: NextRequest) {
         ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
       },
       body: JSON.stringify({ message, sessionId, model }),
+      signal: req.signal,
     });
   } catch (err) {
     return NextResponse.json(

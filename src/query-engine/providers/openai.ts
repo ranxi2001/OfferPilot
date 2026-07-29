@@ -1,6 +1,14 @@
 import OpenAI from 'openai';
 import type { LLMProvider, Message, StreamEvent, StreamParams, ToolSchema } from '../types.js';
 
+interface PendingToolCall {
+  id: string;
+  name: string;
+  started: boolean;
+  bufferedInput: string;
+  order: number;
+}
+
 export class OpenAIProvider implements LLMProvider {
   name = 'openai';
   protected client: OpenAI;
@@ -23,6 +31,7 @@ export class OpenAIProvider implements LLMProvider {
       messages: openaiMessages,
       max_tokens: maxTokens ?? 4096,
       stream: true,
+      stream_options: { include_usage: true },
     };
 
     if (temperature !== undefined) {
@@ -36,8 +45,8 @@ export class OpenAIProvider implements LLMProvider {
       signal: abortSignal,
     });
 
-    let currentToolId = '';
-    let currentToolName = '';
+    const pendingTools = new Map<number, PendingToolCall>();
+    let nextToolOrder = 0;
     let inputTokens = 0;
     let outputTokens = 0;
 
@@ -56,26 +65,43 @@ export class OpenAIProvider implements LLMProvider {
 
       if (delta.tool_calls) {
         for (const tc of delta.tool_calls) {
-          if (tc.id && tc.function?.name) {
-            if (currentToolId) {
-              yield { type: 'tool_use_end' };
-            }
-            currentToolId = tc.id;
-            currentToolName = tc.function.name;
-            yield { type: 'tool_use_start', id: currentToolId, name: currentToolName };
+          const index = typeof tc.index === 'number' ? tc.index : 0;
+          let pending = pendingTools.get(index);
+          if (!pending) {
+            pending = { id: '', name: '', started: false, bufferedInput: '', order: nextToolOrder++ };
+            pendingTools.set(index, pending);
           }
+
+          if (tc.id) pending.id = tc.id;
+          if (tc.function?.name) pending.name = tc.function.name;
+
+          if (!pending.started && pending.id && pending.name) {
+            pending.started = true;
+            yield { type: 'tool_use_start', id: pending.id, name: pending.name, index };
+            if (pending.bufferedInput) {
+              yield { type: 'tool_use_delta', input: pending.bufferedInput, index };
+              pending.bufferedInput = '';
+            }
+          }
+
           if (tc.function?.arguments) {
-            yield { type: 'tool_use_delta', input: tc.function.arguments };
+            if (pending.started) {
+              yield { type: 'tool_use_delta', input: tc.function.arguments, index };
+            } else {
+              pending.bufferedInput += tc.function.arguments;
+            }
           }
         }
       }
 
       const finishReason = chunk.choices[0]?.finish_reason;
       if (finishReason) {
-        if (currentToolId) {
-          yield { type: 'tool_use_end' };
-          currentToolId = '';
+        for (const [index, pending] of Array.from(pendingTools.entries()).sort((a, b) => a[1].order - b[1].order)) {
+          if (pending.started) {
+            yield { type: 'tool_use_end', index };
+          }
         }
+        pendingTools.clear();
         yield {
           type: 'message_end',
           usage: { inputTokens, outputTokens },

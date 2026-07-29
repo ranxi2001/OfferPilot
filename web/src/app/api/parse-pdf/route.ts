@@ -1,14 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractText } from 'unpdf';
 import mammoth from 'mammoth';
+import { MAX_UPLOAD_BODY_BYTES, payloadTooLarge, rejectIfContentLengthExceeds } from '@/lib/api-security';
 
 export async function POST(req: NextRequest) {
   try {
+    const contentLengthError = rejectIfContentLengthExceeds(req, MAX_UPLOAD_BODY_BYTES, 'file upload');
+    if (contentLengthError) return contentLengthError;
+
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    }
+    if (file.size > MAX_UPLOAD_BODY_BYTES) {
+      return payloadTooLarge('file upload', MAX_UPLOAD_BODY_BYTES);
     }
 
     const name = file.name.toLowerCase();

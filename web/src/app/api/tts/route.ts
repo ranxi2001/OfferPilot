@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readTextBody } from '@/lib/api-security';
 
 const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:3001';
 const API_KEY = process.env.OFFERPILOT_API_KEY;
 
 export async function POST(req: NextRequest) {
-  const body = await req.text();
+  const parsed = await readTextBody(req, undefined, 'tts request body');
+  if (parsed.response) return parsed.response;
+  const body = parsed.data;
 
   const backendRes = await fetch(`${BACKEND_URL}/api/tts`, {
     method: 'POST',
@@ -13,6 +16,7 @@ export async function POST(req: NextRequest) {
       ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
     },
     body,
+    signal: req.signal,
   });
 
   if (!backendRes.ok) {

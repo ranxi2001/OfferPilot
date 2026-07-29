@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readJsonBody } from '@/lib/api-security';
 
 export async function POST(req: NextRequest) {
-  const { content } = (await req.json()) as { content?: string };
+  const parsed = await readJsonBody<{ content?: string }>(req);
+  if (parsed.response) return parsed.response;
+  const { content } = parsed.data;
 
   if (!content?.trim()) {
     return NextResponse.json({ error: 'content is required' }, { status: 400 });

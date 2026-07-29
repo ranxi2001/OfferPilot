@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readArrayBufferBody } from '@/lib/api-security';
 
 const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:3001';
 const API_KEY = process.env.OFFERPILOT_API_KEY;
 
 export async function POST(req: NextRequest) {
-  const audio = await req.arrayBuffer();
+  const parsed = await readArrayBufferBody(req, undefined, 'audio body');
+  if (parsed.response) return parsed.response;
+  const audio = parsed.data;
 
   const backendRes = await fetch(`${BACKEND_URL}/api/transcribe`, {
     method: 'POST',
@@ -14,6 +17,7 @@ export async function POST(req: NextRequest) {
       ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
     },
     body: audio,
+    signal: req.signal,
   });
 
   const text = await backendRes.text();

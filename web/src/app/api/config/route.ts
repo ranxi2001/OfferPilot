@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import yaml from 'js-yaml';
+import { readJsonBody } from '@/lib/api-security';
 
 interface ModelEntry {
   name: string;
@@ -17,9 +18,12 @@ interface ModelsConfig {
   multimodal?: ModelEntry[];
 }
 
-const PROJECT_ROOT = resolve(process.cwd(), '..');
+const PROJECT_ROOT = process.env.OFFERPILOT_PROJECT_ROOT
+  ? resolve(process.env.OFFERPILOT_PROJECT_ROOT)
+  : resolve(process.cwd(), '..');
 const ENV_PATH = resolve(PROJECT_ROOT, '.env');
 const MODELS_YML_PATH = resolve(PROJECT_ROOT, 'models.yml');
+const MASK_PREFIX = '********';
 
 function loadEnv(): Record<string, string> {
   const env: Record<string, string> = {};
@@ -51,6 +55,49 @@ function loadModelsConfig(): ModelsConfig {
   }
 }
 
+function isSecretKey(key: string): boolean {
+  return /(?:API_KEY|TOKEN|SECRET|PASSWORD)$/i.test(key);
+}
+
+function maskSecret(value: string | undefined): string {
+  if (!value) return '';
+  return `${MASK_PREFIX}${value.slice(-4)}`;
+}
+
+function isMaskedSecretValue(key: string, value: string): boolean {
+  return isSecretKey(key) && value.startsWith(MASK_PREFIX);
+}
+
+function configWriteEnabled(): boolean {
+  return process.env.NODE_ENV !== 'production' || process.env.OFFERPILOT_ENABLE_CONFIG_API === 'true';
+}
+
+function collectConfigKeys(config: ModelsConfig): Set<string> {
+  const keys = new Set<string>();
+  for (const group of [config.text, config.tts, config.multimodal]) {
+    for (const entry of group ?? []) {
+      keys.add(entry.env_key);
+      const modelRef = entry.model?.match(/\$\{(\w+)\}/)?.[1];
+      if (modelRef) keys.add(modelRef);
+      const baseRef = entry.base_url?.match(/\$\{(\w+)\}/)?.[1];
+      if (baseRef) keys.add(baseRef);
+    }
+  }
+  return keys;
+}
+
+function validateConfigKey(key: string, allowed: Set<string>): string | null {
+  if (!/^[A-Z0-9_]+$/.test(key)) return `Invalid env key: ${key}`;
+  if (!allowed.has(key)) return `Unsupported env key: ${key}`;
+  return null;
+}
+
+function validateConfigValue(value: unknown): string | null {
+  if (typeof value !== 'string') return 'All env values must be strings';
+  if (/[\r\n]/.test(value)) return 'Env values cannot contain newlines';
+  return null;
+}
+
 export async function GET() {
   const config = loadModelsConfig();
   const env = loadEnv();
@@ -72,18 +119,9 @@ export async function GET() {
     }));
 
   const envVars: Record<string, string> = {};
-  const allKeys = new Set<string>();
-  for (const group of [config.text, config.tts, config.multimodal]) {
-    for (const entry of group ?? []) {
-      allKeys.add(entry.env_key);
-      const modelRef = entry.model?.match(/\$\{(\w+)\}/)?.[1];
-      if (modelRef) allKeys.add(modelRef);
-      const baseRef = entry.base_url?.match(/\$\{(\w+)\}/)?.[1];
-      if (baseRef) allKeys.add(baseRef);
-    }
-  }
+  const allKeys = collectConfigKeys(config);
   for (const key of allKeys) {
-    envVars[key] = merged[key] ?? '';
+    envVars[key] = isSecretKey(key) ? maskSecret(merged[key]) : merged[key] ?? '';
   }
 
   return NextResponse.json({
@@ -95,15 +133,40 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!configWriteEnabled()) {
+    return NextResponse.json(
+      { error: 'Config writes are disabled in production' },
+      { status: 403 },
+    );
+  }
+
   try {
-    const { envVars } = (await req.json()) as { envVars: Record<string, string> };
+    const parsed = await readJsonBody<{ envVars: Record<string, string> }>(req);
+    if (parsed.response) return parsed.response;
+    const { envVars } = parsed.data;
 
     if (!envVars || typeof envVars !== 'object') {
       return NextResponse.json({ error: 'envVars object is required' }, { status: 400 });
     }
 
+    const config = loadModelsConfig();
+    const allowedKeys = collectConfigKeys(config);
     const existing = loadEnv();
-    const merged = { ...existing, ...envVars };
+    const merged = { ...existing };
+
+    for (const [key, value] of Object.entries(envVars)) {
+      const keyError = validateConfigKey(key, allowedKeys);
+      if (keyError) return NextResponse.json({ error: keyError }, { status: 400 });
+
+      const valueError = validateConfigValue(value);
+      if (valueError) return NextResponse.json({ error: valueError }, { status: 400 });
+
+      if (isMaskedSecretValue(key, value)) continue;
+
+      const trimmed = value.trim();
+      if (trimmed) merged[key] = trimmed;
+      else delete merged[key];
+    }
 
     const lines: string[] = [
       '# OfferPilot 模型配置 (由弹窗自动生成)',

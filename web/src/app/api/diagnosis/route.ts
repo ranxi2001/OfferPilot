@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readJsonBody } from '@/lib/api-security';
 
 interface DiagnosisRecord {
   id: string;
@@ -82,11 +83,13 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json()) as {
+  const parsed = await readJsonBody<{
     dimension?: string;
     score?: number;
     question?: string;
-  };
+  }>(req);
+  if (parsed.response) return parsed.response;
+  const body = parsed.data;
 
   if (!body.dimension || body.score === undefined) {
     return NextResponse.json({ error: 'dimension and score are required' }, { status: 400 });

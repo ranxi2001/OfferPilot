@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readJsonBody } from '@/lib/api-security';
 
 interface InterviewSession {
   id: string;
@@ -29,13 +30,14 @@ const DEFAULT_QUESTIONS = [
 const sessions = new Map<string, InterviewSession>();
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const { action, sessionId, answer, questions } = body as {
+  const parsed = await readJsonBody<{
     action: 'start' | 'answer' | 'next' | 'report';
     sessionId?: string;
     answer?: string;
     questions?: string[];
-  };
+  }>(req);
+  if (parsed.response) return parsed.response;
+  const { action, sessionId, answer, questions } = parsed.data;
 
   if (action === 'start') {
     const id = crypto.randomUUID();
