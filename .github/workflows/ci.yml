@@ -53,6 +53,17 @@ jobs:
         working-directory: web
         run: npm run build
 
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -t offerpilot-api:test .
+
+      - name: Build Web image
+        run: docker build -f web/Dockerfile -t offerpilot-web:test .
+
   lint:
     runs-on: ubuntu-latest
     steps:

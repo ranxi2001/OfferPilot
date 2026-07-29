@@ -1,8 +1,10 @@
 import './env.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { createApp } from './app.js';
 import { openDatabase, initSchema } from './db/index.js';
+import { KnowledgeSearch, parseKnowledgeDir } from './knowledge/index.js';
 import { transcribeAudio, synthesizeSpeech } from './realtime/mimo-audio.js';
 import { resolve } from 'node:path';
 import { logger } from './logger.js';
@@ -10,8 +12,10 @@ import { logger } from './logger.js';
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const API_KEY = process.env.OFFERPILOT_API_KEY;
 const DB_PATH = resolve(process.env.DB_PATH ?? 'data/agent.db');
+const KNOWLEDGE_DIR = resolve(process.env.KNOWLEDGE_DIR ?? 'knowledge');
 const HEARTBEAT_INTERVAL = 15000;
 const AUTH_REQUIRED = process.env.NODE_ENV === 'production' || process.env.OFFERPILOT_REQUIRE_AUTH === 'true';
+const SEED_KNOWLEDGE_ON_START = process.env.OFFERPILOT_SEED_KNOWLEDGE_ON_START !== 'false';
 const MAX_JSON_BODY_BYTES = readPositiveIntEnv('OFFERPILOT_MAX_JSON_BODY_BYTES', 256 * 1024);
 const MAX_AUDIO_BODY_BYTES = readPositiveIntEnv('OFFERPILOT_MAX_AUDIO_BODY_BYTES', 25 * 1024 * 1024);
 const MAX_MESSAGE_CHARS = readPositiveIntEnv('OFFERPILOT_MAX_MESSAGE_CHARS', 20000);
@@ -148,8 +152,33 @@ function isAllowedOrigin(origin: string): boolean {
 
 const db = openDatabase(DB_PATH);
 initSchema(db);
-const sharedApp = createApp({});
+seedKnowledgeIfNeeded();
+
+const sharedApp = createApp({ db });
 const { sessionManager, memoryStore } = sharedApp;
+
+function seedKnowledgeIfNeeded(): void {
+  if (!SEED_KNOWLEDGE_ON_START) {
+    logger.info('knowledge seed skipped', { reason: 'disabled' });
+    return;
+  }
+
+  if (!existsSync(KNOWLEDGE_DIR)) {
+    logger.warn('knowledge seed skipped', { reason: 'missing directory', path: KNOWLEDGE_DIR });
+    return;
+  }
+
+  const search = new KnowledgeSearch(db);
+  const existing = search.count();
+  if (existing > 0) {
+    logger.info('knowledge seed skipped', { reason: 'database already populated', count: existing });
+    return;
+  }
+
+  const entries = parseKnowledgeDir(KNOWLEDGE_DIR);
+  search.bulkInsert(entries);
+  logger.info('knowledge seeded', { count: entries.length, path: KNOWLEDGE_DIR, dbPath: DB_PATH });
+}
 
 const server = createServer(async (req, res) => {
   if (!cors(req, res)) {
@@ -213,6 +242,7 @@ const server = createServer(async (req, res) => {
 
     try {
       const app = createApp({
+        db,
         model: body.model,
         sessionManager,
         memoryStore,

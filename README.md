@@ -6,6 +6,8 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 
 项目同时也是 `zero2Agent` 学习体系的实战项目：把教程里的 Agent 工程知识、面试题库和架构拆解落地成可运行系统。
 
+当前推荐部署形态是 server-backed：浏览器访问 Next.js Web，Web 通过受保护的后端 API 调用 LLM / ASR / TTS provider。浏览器直连 LLM API 的 BYOK 模式暂缓，作为后续架构探索处理。
+
 ![OfferPilot banner](./assets/offerpilot-banner.jpg)
 
 ## Demo
@@ -167,6 +169,7 @@ http://localhost:3000
 
 ```text
 http://localhost:3001/health
+http://localhost:3000/api/health
 ```
 
 ## CLI 使用
@@ -224,22 +227,26 @@ Web: http://localhost:3000
 
 `docker-compose.yml` 已透传 OpenAI 兼容模型和 Mimo 音频相关环境变量。
 
+生产部署说明见：[docs/deployment.md](./docs/deployment.md)。
+
 ## 验证
 
 最近一次本地验证命令：
 
 ```bash
 npm run build
-npm test -- --run
-cd web && npm run build
+npx vitest run tests/unit tests/e2e
+npm --prefix web run build
+git diff --check
 ```
 
 预期结果：
 
 ```text
-11 个测试文件通过
-55 个测试用例通过
+TypeScript 构建通过
+单元测试和 E2E 测试通过
 Next.js 生产构建通过
+diff whitespace 检查通过
 ```
 
 ## 与 zero2Agent 的关系
@@ -258,4 +265,4 @@ Agent Loop、工具、会话、记忆、Web UI、ASR 诊断
 
 ## License
 
-MIT
+[MIT](./LICENSE)

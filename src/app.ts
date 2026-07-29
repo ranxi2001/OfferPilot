@@ -3,6 +3,7 @@ import { ClaudeProvider } from './query-engine/providers/claude.js';
 import { OpenAIProvider } from './query-engine/providers/openai.js';
 import { DeepSeekProvider } from './query-engine/providers/deepseek.js';
 import { MockProvider } from './query-engine/providers/mock.js';
+import type Database from 'better-sqlite3';
 import { createToolRegistry } from './tools/index.js';
 import { PermissionGate } from './permission/index.js';
 import { ContextManager } from './context/index.js';
@@ -65,6 +66,7 @@ const SYSTEM_PROMPT = `你是 OfferPilot，一个全链路求职辅导 Agent，�
 
 export interface AppOptions {
   model?: string;
+  db?: Database.Database;
   sessionManager?: SessionManager;
   memoryStore?: MemoryStore;
   onTextDelta?: (text: string) => void;
@@ -91,8 +93,8 @@ export function createApp(opts?: AppOptions) {
   const toolRegistry = createToolRegistry();
   const permissionGate = new PermissionGate();
   const contextManager = new ContextManager({ queryEngine });
-  const sessionManager = opts?.sessionManager ?? new SessionManager();
-  const memoryStore = opts?.memoryStore ?? new MemoryStore();
+  const sessionManager = opts?.sessionManager ?? new SessionManager(opts?.db);
+  const memoryStore = opts?.memoryStore ?? new MemoryStore(opts?.db);
 
   const subAgentRuntime = new SubAgentRuntime(queryEngine, {
     maxConcurrency: 3,

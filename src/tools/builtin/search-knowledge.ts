@@ -2,7 +2,9 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ToolDefinition } from '../types.js';
 
-const DB_PATH = resolve('data/agent.db');
+function knowledgeDbPath(): string {
+  return resolve(process.env.DB_PATH ?? 'data/agent.db');
+}
 
 const MOCK_RESULTS = [
   {
@@ -64,11 +66,12 @@ export const searchKnowledge: ToolDefinition = {
     };
 
     // Try real database first
-    if (existsSync(DB_PATH)) {
+    const dbPath = knowledgeDbPath();
+    if (existsSync(dbPath)) {
       try {
         const { openDatabase } = await import('../../db/database.js');
         const { KnowledgeSearch } = await import('../../knowledge/search.js');
-        const db = openDatabase(DB_PATH);
+        const db = openDatabase(dbPath);
         const search = new KnowledgeSearch(db);
         const results = search.search({ query, dimension, limit });
         db.close();

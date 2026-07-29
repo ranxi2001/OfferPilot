@@ -64,10 +64,9 @@
 ### ~~14. model 为 undefined 时 router.resolve 崩溃~~ ✅
 - **修复**: router.resolve 显式处理 undefined/空值，fallback 到第一个 provider 的 defaultModel，无 provider 时抛出清晰配置提示
 
-### 15. countTokens hardcoded model ⏳
+### ~~15. countTokens hardcoded model~~ ✅
 - **位置**: `src/query-engine/providers/claude.ts:84`
-- **问题**: 无论实际用什么模型，countTokens 都用 `claude-sonnet-4-20250514`
-- **修复**: 使用 params 传入的实际 model（不影响功能，低优先级）
+- **修复**: `countTokens` 使用调用方传入的 `model`，未传入时才回退到 provider default model
 
 ---
 

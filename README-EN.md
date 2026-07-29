@@ -4,6 +4,11 @@ OfferPilot is an AI interview diagnosis agent for AI Agent / LLM engineering int
 
 It supports text diagnosis, resume/JD analysis, multi-provider LLM routing, sub-agent execution, streaming Web UI, and voice answer diagnosis with ASR.
 
+The recommended deployment mode is server-backed: the browser uses the Next.js
+Web app, and the Web app calls a protected Node API that owns provider
+credentials. Browser-direct BYOK mode is deferred as a separate architecture
+exploration.
+
 ![OfferPilot banner](./assets/offerpilot-banner.jpg)
 
 ## Demo
@@ -166,6 +171,7 @@ API health check:
 
 ```text
 http://localhost:3001/health
+http://localhost:3000/api/health
 ```
 
 ## CLI Usage
@@ -223,22 +229,26 @@ Web: http://localhost:3000
 
 `docker-compose.yml` passes through OpenAI-compatible and Mimo environment variables.
 
+Production deployment details are in [docs/deployment.md](./docs/deployment.md).
+
 ## Verification
 
 Recent local verification:
 
 ```bash
 npm run build
-npm test -- --run
-cd web && npm run build
+npx vitest run tests/unit tests/e2e
+npm --prefix web run build
+git diff --check
 ```
 
 Expected result:
 
 ```text
-11 test files passed
-55 tests passed
+TypeScript build passes
+Unit and E2E tests pass
 Next.js production build passed
+diff whitespace check passes
 ```
 
 ## Relationship With zero2Agent
@@ -257,4 +267,4 @@ agent loop, tools, sessions, memory, web UI, ASR diagnosis
 
 ## License
 
-MIT
+[MIT](./LICENSE)

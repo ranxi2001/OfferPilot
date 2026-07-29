@@ -6,4 +6,5 @@ data
 web/node_modules
 web/.next
 *.md
+!knowledge/**/*.md
 tests

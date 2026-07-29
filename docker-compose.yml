@@ -9,15 +9,27 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - OPENAI_MODEL=${OPENAI_MODEL}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL}
       - MIMO_API_KEY=${MIMO_API_KEY}
       - MIMO_BASE_URL=${MIMO_BASE_URL}
       - MIMO_ASR_MODEL=${MIMO_ASR_MODEL}
       - MIMO_TTS_MODEL=${MIMO_TTS_MODEL}
       - OFFERPILOT_API_KEY=${OFFERPILOT_API_KEY}
+      - OFFERPILOT_ALLOWED_ORIGINS=${OFFERPILOT_ALLOWED_ORIGINS:-http://localhost:3000}
+      - OFFERPILOT_SEED_KNOWLEDGE_ON_START=${OFFERPILOT_SEED_KNOWLEDGE_ON_START:-true}
       - DB_PATH=/app/data/agent.db
+      - KNOWLEDGE_DIR=/app/knowledge
       - LOG_LEVEL=info
     volumes:
       - app-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3001/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
   web:
@@ -30,8 +42,17 @@ services:
       - BACKEND_URL=http://api:3001
       - OFFERPILOT_API_KEY=${OFFERPILOT_API_KEY}
       - OFFERPILOT_PROJECT_ROOT=/app
+      - OFFERPILOT_ENABLE_CONFIG_API=${OFFERPILOT_ENABLE_CONFIG_API:-false}
+      - OFFERPILOT_HEALTH_TIMEOUT_MS=${OFFERPILOT_HEALTH_TIMEOUT_MS:-3000}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
 volumes:

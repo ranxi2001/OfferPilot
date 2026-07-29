@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import yaml from 'js-yaml';
+import { load as loadYaml } from 'js-yaml';
 import { readJsonBody } from '@/lib/api-security';
 
 interface ModelEntry {
@@ -49,7 +49,7 @@ function resolveEnvRef(value: string | undefined, env: Record<string, string>): 
 function loadModelsConfig(): ModelsConfig {
   try {
     const raw = readFileSync(MODELS_YML_PATH, 'utf-8');
-    return yaml.load(raw) as ModelsConfig;
+    return loadYaml(raw) as ModelsConfig;
   } catch {
     return { text: [], tts: [], multimodal: [] };
   }

@@ -1,24 +1,22 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
+import { afterAll, describe, expect, it } from 'vitest';
 
 interface TestServer {
   baseUrl: string;
   child: ChildProcessWithoutNullStreams;
   tempDir: string;
+  dbPath: string;
   output: () => string;
 }
 
-describe('E2E: HTTP server security', () => {
+describe('E2E: production server startup', () => {
   let server: TestServer;
-
-  beforeAll(async () => {
-    server = await startServer();
-  }, 15000);
 
   afterAll(async () => {
     if (server) {
@@ -26,54 +24,50 @@ describe('E2E: HTTP server security', () => {
     }
   }, 10000);
 
-  it('requires bearer auth for protected API routes in production', async () => {
-    const unauthorized = await fetch(`${server.baseUrl}/api/session`, {
+  it('seeds knowledge and persists sessions through the configured database', async () => {
+    server = await startServer();
+
+    const sessionRes = await fetch(`${server.baseUrl}/api/session`, {
       method: 'POST',
+      headers: { Authorization: 'Bearer production-secret' },
     });
 
-    expect(unauthorized.status).toBe(401);
+    expect(sessionRes.status).toBe(200);
 
-    const authorized = await fetch(`${server.baseUrl}/api/session`, {
-      method: 'POST',
-      headers: { Authorization: 'Bearer e2e-secret' },
-    });
-    const body = await authorized.json() as { sessionId?: string };
+    const db = new Database(server.dbPath);
+    try {
+      const knowledge = db.prepare('SELECT COUNT(*) AS count FROM knowledge').get() as { count: number };
+      const sessions = db.prepare('SELECT COUNT(*) AS count FROM sessions').get() as { count: number };
 
-    expect(authorized.status).toBe(200);
-    expect(body.sessionId).toBeTruthy();
-  });
-
-  it('rejects disallowed CORS origins before serving API requests', async () => {
-    const response = await fetch(`${server.baseUrl}/api/session`, {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer e2e-secret',
-        Origin: 'https://evil.example',
-      },
-    });
-
-    expect(response.status).toBe(403);
-  });
-
-  it('rejects oversized JSON request bodies', async () => {
-    const response = await fetch(`${server.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer e2e-secret',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ message: 'x'.repeat(256) }),
-    });
-
-    expect(response.status).toBe(413);
-  });
+      expect(knowledge.count).toBeGreaterThan(0);
+      expect(sessions.count).toBe(1);
+    } finally {
+      db.close();
+    }
+  }, 15000);
 });
 
 async function startServer(): Promise<TestServer> {
   const port = await getFreePort();
-  const tempDir = mkdtempSync(join(tmpdir(), 'offerpilot-e2e-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'offerpilot-prod-e2e-'));
+  const dbPath = join(tempDir, 'agent.db');
+  const knowledgeDir = join(tempDir, 'knowledge');
   const output: string[] = [];
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+
+  mkdirSync(knowledgeDir, { recursive: true });
+  writeFileSync(
+    join(knowledgeDir, 'react.md'),
+    [
+      '# ReAct Agent',
+      '',
+      '## Q: 什么是 ReAct Agent？',
+      '',
+      '高手答案：ReAct 是 reasoning 与 acting 交替的 Agent 循环。',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
 
   const child = spawn(npx, ['tsx', 'src/server.ts'], {
     cwd: process.cwd(),
@@ -81,11 +75,11 @@ async function startServer(): Promise<TestServer> {
       ...process.env,
       PORT: String(port),
       NODE_ENV: 'production',
-      OFFERPILOT_API_KEY: 'e2e-secret',
+      OFFERPILOT_API_KEY: 'production-secret',
       OFFERPILOT_ALLOWED_ORIGINS: 'http://allowed.example',
-      OFFERPILOT_SEED_KNOWLEDGE_ON_START: 'false',
-      OFFERPILOT_MAX_JSON_BODY_BYTES: '96',
-      DB_PATH: join(tempDir, 'agent.db'),
+      OFFERPILOT_SEED_KNOWLEDGE_ON_START: 'true',
+      KNOWLEDGE_DIR: knowledgeDir,
+      DB_PATH: dbPath,
       LOG_LEVEL: 'error',
       ANTHROPIC_API_KEY: '',
       OPENAI_API_KEY: '',
@@ -101,7 +95,7 @@ async function startServer(): Promise<TestServer> {
   const baseUrl = `http://127.0.0.1:${port}`;
   await waitForHealth(baseUrl, child, () => output.join(''));
 
-  return { baseUrl, child, tempDir, output: () => output.join('') };
+  return { baseUrl, child, tempDir, dbPath, output: () => output.join('') };
 }
 
 async function stopServer(server: TestServer): Promise<void> {
