@@ -1,13 +1,13 @@
 # OfferPilot
 
-OfferPilot is an AI interview diagnosis agent for AI Agent / LLM engineering interviews. It is a hand-written Agent Loop project, not a LangChain / LangGraph wrapper, and is designed as a practical companion project for the `zero2Agent` learning path.
+OfferPilot is an AI interview diagnosis agent for AI Agent / LLM engineering interviews. Its primary backend is a typed Agent Harness written in Go, not a LangChain / LangGraph wrapper. Next.js owns the Web/BFF and document extraction, while Node.js 24 remains the frontend and legacy CLI runtime.
 
 It supports text diagnosis, resume/JD analysis, multi-provider LLM routing, sub-agent execution, streaming Web UI, and voice answer diagnosis with ASR.
 
 The recommended deployment mode is server-backed: the browser uses the Next.js
-Web app, and the Web app calls a protected Node API that owns provider
-credentials. Browser-direct BYOK mode is deferred as a separate architecture
-exploration.
+Web app, and the Web app calls a protected Go API that owns provider
+credentials. Mock interviews ingest both the JD and resume, ground questions in
+evidence, and use constrained Interviewer, Assessor, and Reporter agents.
 
 ![OfferPilot banner](./assets/offerpilot-banner.jpg)
 
@@ -35,6 +35,13 @@ An exported sample report is available in [demo.md](./assets/demo.md).
 
 ## What Changed Today
 
+- Made Go the primary HTTP and Harness backend; `npm run serve:legacy` keeps the TypeScript API as a rollback path.
+- Added JD and resume upload/paste/URL input with knowledge, project, and mixed interview modes.
+- Replaced fixed question lists and mechanical `next` calls with atomic answer assessment plus adaptive follow-up.
+- Moved semantic scoring into a typed Assessor; Go validates schema/evidence and applies deterministic policy only.
+- Added claim verdicts: `supported`, `unverified`, `contradicted`, and `not_in_material`.
+- The Go knowledge loader currently parses 403 question blocks from 36 Markdown files instead of trusting the stale 29-row database.
+- Added the [Agent Harness and Go backend architecture](./docs/agent-harness-architecture.md) with editable draw.io source.
 - Added real API testing path with `.env` auto-loading for CLI and API server.
 - Added configurable OpenAI-compatible provider settings:
   - `OPENAI_API_KEY`
@@ -70,36 +77,28 @@ An exported sample report is available in [demo.md](./assets/demo.md).
 | JD analysis | Extract skill stack, seniority signal, preparation focus | Done |
 | Resume optimization | STAR, quantification, keywords, rewrite suggestions | Done |
 | Resume-JD matching | Coverage, missing items, targeted packaging | Done |
-| Mock interview | Generate personalized interview sequence | Done |
-| Realtime interview engine | TTS text, defect rules, session report | Backend skeleton |
+| Adaptive mock interview | JD + resume evidence, semantic assessment, dynamic follow-up, report | Done |
+| Realtime interview | TTS question, text/WAV answer, per-turn feedback | Done |
 | Multi-agent runtime | Specialist sub-agents with concurrency pool | Done |
 | Knowledge search | SQLite FTS5 + optional embeddings | Done |
 
 ## Architecture
 
 ```text
-src/
-  agent/            Agent Loop with tool execution and token budget
-  query-engine/     Provider routing, streaming, retry, collectors
-  query-engine/
-    providers/      Claude, OpenAI-compatible, DeepSeek, Mock
-  tools/            Tool registry and built-in interview tools
-  sub-agent/        Sub-agent runtime with concurrency pool
-  realtime/         ASR/TTS integration and realtime interview helpers
-  knowledge/        Markdown knowledge parser, FTS search, embeddings
-  context/          Layered context and compression
-  memory/           Session-scoped memory store
-  permission/       Tool risk gate and audit records
-  session/          Session state and message history
-  command/          CLI slash command parser
-  hooks/            Pre/post tool hooks
-  db/               SQLite persistence
-  server.ts         HTTP API server with SSE
+backend/
+  cmd/offerpilot-api/  Go API composition and graceful shutdown
+  internal/harness/    typed agents, bounded concurrency, traces
+  internal/interview/  evidence, assessment, policy, report aggregate
+  internal/knowledge/  question-level Markdown parser and BM25 search
+  internal/httpapi/    auth, CORS, SSE, limits, Web compatibility DTOs
+  internal/llm/        OpenAI-compatible structured model gateway
+  internal/speech/     MiMo ASR/TTS
 
-web/
-  src/app/          Next.js App Router pages and API proxy routes
-  src/components/   Chat UI, sidebar, input, message rendering
+web/                   Next.js UI/BFF and document extraction
+src/                   legacy TypeScript CLI/API during migration
 ```
+
+See [Agent Harness and Go backend architecture](./docs/agent-harness-architecture.md) for the full design.
 
 ## Model And Audio Configuration
 
@@ -132,7 +131,8 @@ DEEPSEEK_API_KEY=sk-...
 
 Notes:
 
-- The default chat model is `gpt-5.5`.
+- The Go backend currently uses an OpenAI-compatible text endpoint; the default chat model is `gpt-5.5`.
+- Claude and DeepSeek remain available through the legacy CLI/API during migration.
 - OpenAI-compatible chat requests use `OPENAI_BASE_URL`.
 - Mimo ASR/TTS uses the official `https://api.xiaomimimo.com/v1` base URL.
 - Mimo ASR is implemented through `/chat/completions` with `input_audio`, following the official Mimo documentation.
@@ -140,10 +140,11 @@ Notes:
 
 ## Quick Start
 
-Use Node.js 20 or 22. Node.js 24 may force native rebuilds for `better-sqlite3` on Windows.
+This project uses Go 1.26 and Node.js 24. `better-sqlite3` is now legacy-only and remains compatible with Node.js 24.
 
 ```bash
 npm install
+cd web && npm install && cd ..
 cp .env.example .env
 ```
 
@@ -151,6 +152,12 @@ Run the API server:
 
 ```bash
 npm run serve
+```
+
+Use the legacy TypeScript API only for rollback:
+
+```bash
+npm run serve:legacy
 ```
 
 Run the Web UI:
@@ -171,8 +178,12 @@ API health check:
 
 ```text
 http://localhost:3001/health
+http://localhost:3001/health/live
+http://localhost:3001/health/ready
 http://localhost:3000/api/health
 ```
+
+`/health/live` only reports process liveness. Deployments and traffic gates must use `/health/ready`; it returns `503` when the model is unavailable, and interviews never commit a mechanical fallback score.
 
 ## CLI Usage
 
@@ -237,6 +248,7 @@ Recent local verification:
 
 ```bash
 npm run build
+npm run test:go
 npx vitest run tests/unit tests/e2e
 npm --prefix web run build
 git diff --check
@@ -245,7 +257,8 @@ git diff --check
 Expected result:
 
 ```text
-TypeScript build passes
+Go and legacy TypeScript builds pass
+Go backend tests pass
 Unit and E2E tests pass
 Next.js production build passed
 diff whitespace check passes

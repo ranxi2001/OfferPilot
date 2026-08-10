@@ -1,34 +1,32 @@
-FROM node:22-slim AS base
-WORKDIR /app
+FROM golang:1.26-bookworm AS build
+WORKDIR /src/backend
 
-FROM base AS native-build
+COPY backend/go.* ./
+RUN go mod download
+
+COPY backend/ ./
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/offerpilot-api ./cmd/offerpilot-api
+
+FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system offerpilot \
+    && useradd --system --gid offerpilot --home-dir /app offerpilot
 
-FROM native-build AS deps
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+WORKDIR /app
+COPY --from=build /out/offerpilot-api ./offerpilot-api
+COPY knowledge/ ./knowledge/
 
-FROM native-build AS build
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY tsconfig.json ./
-COPY src/ src/
-RUN npx tsc
+RUN mkdir -p /app/data && chown -R offerpilot:offerpilot /app
+USER offerpilot
 
-FROM base AS runtime
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY package.json ./
-COPY knowledge/ knowledge/
-
-ENV NODE_ENV=production
 ENV PORT=3001
+ENV KNOWLEDGE_DIR=/app/knowledge
+ENV DB_PATH=/app/data/offerpilot.db
 EXPOSE 3001
 
-RUN mkdir -p data
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl --fail --silent --show-error http://127.0.0.1:3001/health/ready || exit 1
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || '3001') + '/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
-
-CMD ["node", "dist/server.js"]
+CMD ["./offerpilot-api"]

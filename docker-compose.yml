@@ -16,16 +16,20 @@ services:
       - MIMO_BASE_URL=${MIMO_BASE_URL}
       - MIMO_ASR_MODEL=${MIMO_ASR_MODEL}
       - MIMO_TTS_MODEL=${MIMO_TTS_MODEL}
+      - MIMO_TTS_VOICE=${MIMO_TTS_VOICE:-alloy}
+      - MIMO_ASR_LANGUAGE=${MIMO_ASR_LANGUAGE:-auto}
       - OFFERPILOT_API_KEY=${OFFERPILOT_API_KEY}
+      - OFFERPILOT_REQUIRE_AUTH=true
       - OFFERPILOT_ALLOWED_ORIGINS=${OFFERPILOT_ALLOWED_ORIGINS:-http://localhost:3000}
-      - OFFERPILOT_SEED_KNOWLEDGE_ON_START=${OFFERPILOT_SEED_KNOWLEDGE_ON_START:-true}
-      - DB_PATH=/app/data/agent.db
+      - OFFERPILOT_MAX_INTERVIEW_BODY_BYTES=${OFFERPILOT_MAX_INTERVIEW_BODY_BYTES:-2097152}
+      - OFFERPILOT_HARNESS_MAX_CONCURRENT=${OFFERPILOT_HARNESS_MAX_CONCURRENT:-4}
+      - DB_PATH=/app/data/offerpilot.db
       - KNOWLEDGE_DIR=/app/knowledge
       - LOG_LEVEL=info
     volumes:
       - app-data:/app/data
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3001/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:3001/health/ready >/dev/null"]
       interval: 30s
       timeout: 5s
       retries: 3

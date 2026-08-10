@@ -2,11 +2,11 @@
 
 [English](./README-EN.md)
 
-OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。项目采用手写 Agent Loop，不依赖 LangChain / LangGraph，目标是把 Agent 工程里的模型调用、工具执行、上下文管理、会话状态、子 Agent、Web 流式交互和语音诊断串成一个完整产品原型。
+OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。主后端使用 Go 实现 typed Agent Harness，不依赖 LangChain / LangGraph；Next.js 负责 Web/BFF 与文档解析，Node.js 24 继续承载前端和旧 CLI。
 
 项目同时也是 `zero2Agent` 学习体系的实战项目：把教程里的 Agent 工程知识、面试题库和架构拆解落地成可运行系统。
 
-当前推荐部署形态是 server-backed：浏览器访问 Next.js Web，Web 通过受保护的后端 API 调用 LLM / ASR / TTS provider。浏览器直连 LLM API 的 BYOK 模式暂缓，作为后续架构探索处理。
+当前推荐部署形态是 server-backed：浏览器访问 Next.js Web，Web 通过受保护的 Go API 调用 LLM / ASR / TTS provider。模拟面试会同时摄取 JD 与简历，按证据生成首题，并由 Interviewer、Assessor、Reporter 三个受约束子 Agent 驱动逐轮追问与报告。
 
 ![OfferPilot banner](./assets/offerpilot-banner.jpg)
 
@@ -34,6 +34,13 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 
 ## 今日更新记录
 
+- Go 成为主 HTTP/Harness 后端；旧 TypeScript API 通过 `npm run serve:legacy` 保留为回滚入口。
+- 模拟面试支持上传、粘贴或抓取 JD 与简历，并可选择知识拷打、项目深挖或混合模式。
+- `answer` 原子返回本题结构化评估和下一道自适应问题，不再使用固定题单或机械 `next`。
+- Assessor 按语义生成 typed rubric；Go 仅校验 schema/证据并执行追问策略，不按字数、数字或关键词打分。
+- 简历与回答声明标记为 `supported / unverified / contradicted / not_in_material`，不会把候选人自述冒充外部事实。
+- 知识库启动时动态解析 Markdown：当前 36 个文件得到 403 个独立题块，不再沿用旧 SQLite 的 29 条残缺记录。
+- 新增 [Agent Harness 与 Go 后端架构文档](./docs/agent-harness-architecture.md) 和可编辑 draw.io 图。
 - 打通真实 API 测试链路，CLI 和 API Server 启动时自动读取 `.env`。
 - 增加 OpenAI 兼容模型配置：
   - `OPENAI_API_KEY`
@@ -65,7 +72,7 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 | --- | --- | --- |
 | 面试诊断 | 输入问题和回答，输出评分、差距、改进建议 + CoT 思维链展示 | 已完成 |
 | 录音回答诊断 | 录音/上传音频 → ASR → 诊断 | 已完成 |
-| 实时模拟面试 | AI 逐题提问 → TTS 播报 → 录音/文字作答 → 即时缺陷分析 → 总结报告 | 已完成 |
+| 自适应模拟面试 | JD + 简历证据 → Agent 出题 → 语义评估 → 动态追问 → 证据化报告 | 已完成 |
 | 简历分析 | 段落级诊断：STAR 结构、量化度、技术决策、个人贡献 | 已完成 |
 | JD 匹配 | 关键词覆盖率、缺失项、职级判断、定向包装建议 | 已完成 |
 | 能力雷达 | 7 维度评分 + 学习路径推荐 + 诊断历史追踪 | 已完成 |
@@ -76,28 +83,23 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 ## 架构概览
 
 ```text
-src/
-  agent/            Agent Loop，负责工具执行和预算控制
-  query-engine/     Provider 路由、流式输出、重试、结果收集
-  query-engine/
-    providers/      Claude / OpenAI-compatible / DeepSeek / Mock
-  tools/            工具注册表和内置面试工具
-  sub-agent/        子 Agent 运行时和并发池
-  realtime/         ASR/TTS 集成与实时面试辅助模块
-  knowledge/        Markdown 知识解析、FTS 检索、embedding
-  context/          分层上下文和压缩
-  memory/           会话级记忆
-  permission/       工具风险控制和审计
-  session/          会话状态和消息历史
-  command/          CLI 命令解析
-  hooks/            工具前后置 Hook
-  db/               SQLite 持久化
-  server.ts         HTTP API Server + SSE
+backend/
+  cmd/offerpilot-api/  Go API 装配与优雅退出
+  internal/harness/    typed 子 Agent、并发边界、trace、结构化输出
+  internal/interview/  面试聚合、证据、评估、策略与报告
+  internal/knowledge/  Markdown 逐题解析与 BM25 检索
+  internal/httpapi/    鉴权、CORS、SSE、限额与前端兼容投影
+  internal/llm/        OpenAI-compatible 模型网关
+  internal/speech/     MiMo ASR/TTS
 
 web/
-  src/app/          Next.js App Router 页面和 API 代理
-  src/components/   Chat UI、侧边栏、输入框、消息渲染
+  src/app/            Next.js App Router、BFF、PDF/DOCX/URL 解析
+  src/components/     面试作战台、材料输入、Chat 与报告 UI
+
+src/                  旧 TypeScript CLI/API，迁移期间保留
 ```
+
+完整设计与迁移约束见 [Agent Harness 与 Go 后端架构](./docs/agent-harness-architecture.md)。
 
 ## 模型与音频配置
 
@@ -130,7 +132,8 @@ DEEPSEEK_API_KEY=sk-...
 
 说明：
 
-- 默认聊天模型是 `gpt-5.5`。
+- Go 主后端当前使用 OpenAI-compatible 文本接口，默认聊天模型是 `gpt-5.5`。
+- Claude / DeepSeek provider 暂由旧 CLI 和 `serve:legacy` 保留。
 - OpenAI 兼容模型走 `OPENAI_BASE_URL`。
 - Mimo ASR/TTS 使用官方 `https://api.xiaomimimo.com/v1`。
 - Mimo ASR 按官方文档通过 `/chat/completions` 的 `input_audio` 调用。
@@ -138,10 +141,11 @@ DEEPSEEK_API_KEY=sk-...
 
 ## 快速开始
 
-建议使用 Node.js 20 或 22。Windows 下 Node.js 24 可能触发 `better-sqlite3` 原生依赖重编译。
+项目使用 Go 1.26 和 Node.js 24。`better-sqlite3` 只用于旧 CLI/API，已升级到支持 Node.js 24 的版本。
 
 ```bash
 npm install
+cd web && npm install && cd ..
 cp .env.example .env
 ```
 
@@ -149,6 +153,12 @@ cp .env.example .env
 
 ```bash
 npm run serve
+```
+
+旧 TypeScript API 仅用于迁移回滚：
+
+```bash
+npm run serve:legacy
 ```
 
 启动 Web UI：
@@ -169,8 +179,12 @@ http://localhost:3000
 
 ```text
 http://localhost:3001/health
+http://localhost:3001/health/live
+http://localhost:3001/health/ready
 http://localhost:3000/api/health
 ```
+
+`/health/live` 只表示进程存活；部署和流量入口必须使用 `/health/ready`。模型未配置时 readiness 返回 `503`，面试接口不会生成机械兜底评分。
 
 ## CLI 使用
 
@@ -235,6 +249,7 @@ Web: http://localhost:3000
 
 ```bash
 npm run build
+npm run test:go
 npx vitest run tests/unit tests/e2e
 npm --prefix web run build
 git diff --check
@@ -243,7 +258,8 @@ git diff --check
 预期结果：
 
 ```text
-TypeScript 构建通过
+Go 与旧 TypeScript 构建通过
+Go 后端测试通过
 单元测试和 E2E 测试通过
 Next.js 生产构建通过
 diff whitespace 检查通过

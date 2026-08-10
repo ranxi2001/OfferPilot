@@ -1,102 +1,136 @@
 # OfferPilot Server-Backed Deployment
 
-OfferPilot's supported production path is the server-backed architecture:
+The supported production topology uses Node.js 24 for Next.js and Go 1.26 for
+the API and Agent Harness:
 
 ```text
-Browser -> Next.js Web -> Node API -> LLM / ASR / TTS providers
-                         |
-                         v
-                      SQLite
+Browser -> Next.js Web/BFF -> Go API/Harness -> SQLite
+                                  |          -> Markdown knowledge index
+                                  +---------> OpenAI-compatible LLM / MiMo
 ```
 
-Browser-direct BYOK mode is tracked separately in
-[OfferPilot#1](https://github.com/ranxi2001/OfferPilot/issues/1) and is not a
-release blocker for the current deployment path.
+The TypeScript API is a migration rollback path (`npm run serve:legacy`), not
+the default server. New interview sessions must stay on the backend that
+created them; do not switch an active session between Go and TypeScript.
 
 ## Runtime Contract
 
-Required for production:
+Required in production:
 
-- `OFFERPILOT_API_KEY`: shared bearer token used by the Web service when it
-  calls the API service. Change the example value before deployment.
-- `OFFERPILOT_ALLOWED_ORIGINS`: comma-separated browser origins allowed to call
-  the API service, for example `https://offerpilot.example.com`.
-- At least one text provider key, such as `OPENAI_API_KEY`,
-  `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`.
-- `DB_PATH`: SQLite database path. In Docker Compose this is
-  `/app/data/agent.db`.
+- `OFFERPILOT_API_KEY`: bearer token shared by the Web BFF and Go API.
+- `OFFERPILOT_REQUIRE_AUTH=true`.
+- `OFFERPILOT_ALLOWED_ORIGINS`: comma-separated browser origins.
+- `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL`: structured
+  Interviewer, Assessor, Reporter, and free-form chat.
+- `KNOWLEDGE_DIR`: Markdown knowledge directory, `/app/knowledge` in Docker.
+- `DB_PATH`: SQLite interview state, `/app/data/offerpilot.db` in Docker.
 
 Optional:
 
-- `MIMO_API_KEY`, `MIMO_BASE_URL`, `MIMO_ASR_MODEL`, `MIMO_TTS_MODEL`: enable
-  audio transcription and speech synthesis.
-- `OFFERPILOT_SEED_KNOWLEDGE_ON_START`: defaults to `true`. On first startup,
-  the API service seeds the SQLite knowledge table when it is empty.
-- `KNOWLEDGE_DIR`: markdown knowledge directory. In the API image this is
-  `/app/knowledge`.
-- `OFFERPILOT_ENABLE_CONFIG_API`: defaults to `false` in Compose. Keep it off
-  in production unless the deployment is private and authenticated.
-- `OFFERPILOT_HEALTH_TIMEOUT_MS`: timeout used by the Web health route when it
-  checks the API service.
+- `MIMO_API_KEY`, `MIMO_BASE_URL`, `MIMO_ASR_MODEL`, `MIMO_TTS_MODEL`,
+  `MIMO_TTS_VOICE`: WAV/MP3 transcription and speech synthesis.
+- `OFFERPILOT_HARNESS_MAX_CONCURRENT`: maximum concurrent typed Agent calls;
+  defaults to `4`.
+- `OFFERPILOT_INTERVIEWER_TIMEOUT`, `OFFERPILOT_ASSESSOR_TIMEOUT`,
+  `OFFERPILOT_REPORTER_TIMEOUT`, `OFFERPILOT_PLANNER_TIMEOUT`: wall-clock
+  limits for each typed Agent. Defaults are `90s`, `120s`, `90s`, and `90s`.
+- `OPENAI_TIMEOUT`: per-provider request attempt; defaults to `90s`.
+- `OFFERPILOT_MAX_INTERVIEW_BODY_BYTES`: combined extracted JD/resume JSON
+  limit; defaults to 2 MiB.
+- `OFFERPILOT_ENABLE_CONFIG_API`: Next.js model-config editor; keep disabled
+  for public deployments.
+- `OFFERPILOT_HEALTH_TIMEOUT_MS`: Next.js timeout while checking the Go API.
 
-## Docker Compose
+Provider credentials stay in server environment variables. Never expose them
+through browser bundles or client-side configuration.
 
-Prepare `.env`:
+`POST /api/interview/stream` returns newline-delimited JSON. Trace lines contain
+only fixed stage labels, statuses, aggregate counts, Agent IDs, and durations;
+the final line is `{ "type": "result", "status": <http-status>, "data": ... }`.
+Prompts, answers, JD/resume text, knowledge excerpts, and provider response
+bodies are intentionally excluded from trace events.
+
+## Local Development
+
+Install Go 1.26, Node.js 24, and dependencies, then create `.env`:
 
 ```bash
+npm install
+npm --prefix web install
 cp .env.example .env
 ```
 
-Edit `.env`:
-
-- Replace `OFFERPILOT_API_KEY=change-me-in-production`.
-- Set `OFFERPILOT_ALLOWED_ORIGINS` to the real Web origin.
-- Fill in provider keys needed by your deployment.
-
-Start both services:
+Run the Go API and Next.js Web in separate terminals:
 
 ```bash
-docker compose up --build -d
+npm run serve
+npm --prefix web run dev
 ```
 
-Check health:
+Check readiness:
 
 ```bash
-curl http://localhost:3001/health
+curl http://localhost:3001/health/live
+curl --fail http://localhost:3001/health/ready
 curl http://localhost:3000/api/health
 ```
 
-Expected API response:
+A healthy, fully configured API reports the dynamically parsed knowledge count:
 
 ```json
-{"status":"ok"}
+{
+  "status": "ready",
+  "service": "offerpilot-go",
+  "live": true,
+  "ready": true,
+  "readiness": "ready",
+  "harness": "ready",
+  "modelConfigured": true,
+  "speechConfigured": true,
+  "knowledgeEntries": 403
+}
 ```
 
-The Web health endpoint returns `200` only when the Web service is running and
-the API health check succeeds.
+`knowledgeEntries` is an observed value, not a permanent assertion. It changes
+when Markdown files change. A missing LLM key makes `/health/ready` return 503
+with `harness: not_ready`; interview requests fail closed and do not commit a
+fallback assessment.
 
-## Data And Secrets
+## Docker Compose
 
-- SQLite state lives in the `app-data` Docker volume.
-- The API service seeds the markdown knowledge base only when the database is
-  empty, so repeated restarts do not duplicate seeded records.
-- Provider keys stay in server environment variables. The browser never needs
-  direct model-provider credentials in this deployment mode.
-- Do not publish `.env`, generated SQLite databases, private resumes, audio,
-  transcripts, or logs containing provider errors with credentials.
+Prepare and edit `.env`, replacing the example API token and provider keys:
 
-## Local Validation
+```bash
+cp .env.example .env
+docker compose up --build -d
+```
 
-Run these checks before shipping deployment changes:
+The API image is a multi-stage Go build. The Web image uses Node.js 24. Compose
+waits for the Go health check before starting Web traffic.
+
+## Data And Recovery
+
+- The `app-data` volume stores `/app/data/offerpilot.db`.
+- Interview writes use optimistic versions, so two answers for the same active
+  question cannot both commit.
+- The Markdown knowledge index is rebuilt from the mounted/image content at
+  startup and exposes the resulting count in health output.
+- Do not publish `.env`, SQLite files, private resumes, transcripts, audio, or
+  provider error logs.
+- To roll back, route only newly created sessions to `serve:legacy`; allow or
+  pause existing Go-owned sessions instead of translating state mid-interview.
+
+## Release Validation
 
 ```bash
 npm run build
+npm run test:go
 npx vitest run tests/unit tests/e2e
 npm --prefix web run build
 git diff --check
 ```
 
-When Docker is available, also run:
+When Docker is available:
 
 ```bash
 docker build -t offerpilot-api:test .

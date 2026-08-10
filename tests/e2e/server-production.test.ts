@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
@@ -53,7 +54,7 @@ async function startServer(): Promise<TestServer> {
   const dbPath = join(tempDir, 'agent.db');
   const knowledgeDir = join(tempDir, 'knowledge');
   const output: string[] = [];
-  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const tsxCli = createRequire(join(process.cwd(), 'package.json')).resolve('tsx/cli');
 
   mkdirSync(knowledgeDir, { recursive: true });
   writeFileSync(
@@ -69,7 +70,7 @@ async function startServer(): Promise<TestServer> {
     'utf-8',
   );
 
-  const child = spawn(npx, ['tsx', 'src/server.ts'], {
+  const child = spawn(process.execPath, [tsxCli, 'src/server.ts'], {
     cwd: process.cwd(),
     env: {
       ...process.env,

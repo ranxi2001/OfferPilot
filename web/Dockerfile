@@ -1,10 +1,10 @@
-FROM node:22-slim AS deps
+FROM node:24-slim AS deps
 WORKDIR /app/web
 
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --omit=dev
 
-FROM node:22-slim AS build
+FROM node:24-slim AS build
 WORKDIR /app/web
 
 COPY web/package.json web/package-lock.json ./
@@ -13,7 +13,7 @@ COPY web/ ./
 COPY models.yml /app/models.yml
 RUN npm run build
 
-FROM node:22-slim AS runtime
+FROM node:24-slim AS runtime
 WORKDIR /app/web
 
 ENV NODE_ENV=production

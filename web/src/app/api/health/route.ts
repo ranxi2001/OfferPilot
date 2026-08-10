@@ -11,7 +11,7 @@ export async function GET() {
   const timeout = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${BACKEND_URL}/health`, {
+    const response = await fetch(`${BACKEND_URL}/health/ready`, {
       cache: 'no-store',
       signal: controller.signal,
     });

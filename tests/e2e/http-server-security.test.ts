@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
@@ -73,9 +74,9 @@ async function startServer(): Promise<TestServer> {
   const port = await getFreePort();
   const tempDir = mkdtempSync(join(tmpdir(), 'offerpilot-e2e-'));
   const output: string[] = [];
-  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const tsxCli = createRequire(join(process.cwd(), 'package.json')).resolve('tsx/cli');
 
-  const child = spawn(npx, ['tsx', 'src/server.ts'], {
+  const child = spawn(process.execPath, [tsxCli, 'src/server.ts'], {
     cwd: process.cwd(),
     env: {
       ...process.env,
