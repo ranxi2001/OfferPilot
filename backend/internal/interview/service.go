@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode"
 
 	"offerpilot/backend/internal/executiontrace"
 )
@@ -208,13 +209,20 @@ func (s *Service) Answer(ctx context.Context, request AnswerRequest) (AnswerResp
 	}
 	persistenceSpan.End(nil, "")
 
+	feedback := AnswerFeedback{
+		Focus: coveragePointByID(session.Profile, record.Question.CoveragePointID).Area,
+	}
+	if session.Config.FeedbackMode == FeedbackDeferred {
+		feedback.Deferred = true
+	} else {
+		feedback.Assessment = publicAssessment(session.Sources, assessment)
+		feedback.Summary = assessmentSummary(feedback.Focus, assessment)
+	}
+
 	return AnswerResponse{
-		InterviewID: session.ID,
-		State:       session.State,
-		Feedback: AnswerFeedback{
-			Assessment: assessment,
-			Summary:    assessmentSummary(coveragePointByID(session.Profile, record.Question.CoveragePointID).Area, assessment),
-		},
+		InterviewID:  session.ID,
+		State:        session.State,
+		Feedback:     feedback,
 		NextQuestion: nextQuestion,
 		Progress:     progressFor(session),
 		ReportReady:  session.State == StateCompleted,
@@ -241,14 +249,19 @@ func (s *Service) planNextCoverage(ctx context.Context, session InterviewSession
 	for _, answer := range session.Answers {
 		questionKindCounts[answer.Question.Kind]++
 	}
+	plannerHistory := publicPlannerHistory(session)
+	publicPrevious := previous
+	if len(plannerHistory) > 0 {
+		publicPrevious = plannerHistory[len(plannerHistory)-1]
+	}
 	selection, err := s.planner.PlanCoverage(ctx, PlanCoverageRequest{
 		Config:                 session.Config,
 		CurrentCoveragePointID: session.CurrentQuestion.CoveragePointID,
-		PreviousQuestion:       previous.Question,
-		PreviousAssessment:     previous.Assessment,
+		PreviousQuestion:       publicPrevious.Question,
+		PreviousAssessment:     publicPrevious.Assessment,
 		Candidates:             candidates,
 		QuestionKindCounts:     questionKindCounts,
-		History:                session.Answers,
+		History:                plannerHistory,
 		RemainingQuestions:     max(0, session.Config.QuestionCount-len(session.Answers)),
 	})
 	if err != nil {
@@ -275,14 +288,21 @@ func coverageCandidates(session InterviewSession) []CoverageCandidate {
 	}
 	candidates := make([]CoverageCandidate, 0, len(session.Profile.Coverage))
 	for _, point := range session.Profile.Coverage {
+		label := point.Label
+		evidence := publicQuestionEvidence(session.Sources, point.EvidenceRefs)
+		if len(evidence) > 0 && evidence[0].Kind == SourceKnowledge {
+			label = concise(knowledgeQuestionLabel(evidence[0].Quote), 120)
+		} else if firstFoldedMarker(label, knowledgeReferenceMarkers) >= 0 {
+			label = concise(knowledgeQuestionLabel(label), 120)
+		}
 		candidates = append(candidates, CoverageCandidate{
 			CoveragePointID: point.ID,
 			Area:            point.Area,
-			Label:           point.Label,
+			Label:           label,
 			Priority:        coveragePriority(session.Config.Focus, point),
 			QuestionCount:   counts[point.ID],
 			LastAskedTurn:   lastAsked[point.ID],
-			EvidenceRefs:    point.EvidenceRefs,
+			EvidenceRefs:    evidence,
 		})
 	}
 	return candidates
@@ -389,27 +409,30 @@ func (s *Service) generateQuestion(ctx context.Context, session InterviewSession
 	for _, ref := range point.EvidenceRefs {
 		allowed[ref.AnchorID] = struct{}{}
 	}
-	anchors := anchorsForEvidence(session.Sources, point.EvidenceRefs)
+	profile, history := publicQuestionContext(session)
+	anchors := publicQuestionAnchors(anchorsForEvidence(session.Sources, point.EvidenceRefs))
+	publicDecision := decision
+	publicDecision.Reason = publicDecisionReason(decision)
 	request := GenerateQuestionRequest{
-		Profile:  session.Profile,
-		Decision: decision,
+		Profile:  profile,
+		Decision: publicDecision,
 		Anchors:  anchors,
-		History:  session.Answers,
+		History:  history,
 	}
 	draft, err := s.agent.GenerateQuestion(ctx, request)
 	if err != nil {
 		return Question{}, unavailable("interview question generation is temporarily unavailable", fmt.Errorf("generate question: %w", err))
 	}
-	if validationErr := validateQuestionDraft(session.Sources, draft, allowed); validationErr != nil {
+	if validationErr := validateQuestionDraft(session.Sources, draft, allowed, session.Answers); validationErr != nil {
 		request.Repair = &RepairInstruction{
 			Reason:          validationErr.Error(),
-			AllowedEvidence: canonicalEvidence(session.Sources, point.EvidenceRefs),
+			AllowedEvidence: publicQuestionEvidence(session.Sources, point.EvidenceRefs),
 		}
 		draft, err = s.agent.GenerateQuestion(ctx, request)
 		if err != nil {
 			return Question{}, unavailable("interview question generation is temporarily unavailable", fmt.Errorf("repair question after %v: %w", validationErr, err))
 		}
-		if repairValidationErr := validateQuestionDraft(session.Sources, draft, allowed); repairValidationErr != nil {
+		if repairValidationErr := validateQuestionDraft(session.Sources, draft, allowed, session.Answers); repairValidationErr != nil {
 			return Question{}, unavailable("interview question generation could not produce a grounded result", fmt.Errorf("question repair validation: %w", repairValidationErr))
 		}
 	}
@@ -432,12 +455,157 @@ func (s *Service) generateQuestion(ctx context.Context, session InterviewSession
 		EvidenceRefs:    evidence,
 		Adaptation: QuestionAdaptation{
 			Trigger:           decision.Action,
-			Reason:            decision.Reason,
+			Reason:            publicDecisionReason(decision),
 			BasedOnQuestionID: basedOn,
 			FollowUpAxis:      decision.FollowUpAxis,
 			Depth:             decision.FollowUpDepth,
 		},
 	}, nil
+}
+
+func publicQuestionContext(session InterviewSession) (Profile, []AnswerRecord) {
+	snapshot := cloneSession(InterviewSession{Profile: session.Profile, Answers: session.Answers})
+	publicProfileEvidence(session.Sources, &snapshot.Profile)
+	for index := range snapshot.Answers {
+		publicRecordEvidence(session.Sources, &snapshot.Answers[index])
+	}
+	return snapshot.Profile, snapshot.Answers
+}
+
+func publicPlannerHistory(session InterviewSession) []AnswerRecord {
+	snapshot := cloneSession(InterviewSession{Answers: session.Answers})
+	for index := range snapshot.Answers {
+		publicRecordEvidence(session.Sources, &snapshot.Answers[index])
+	}
+	return snapshot.Answers
+}
+
+func publicRecordEvidence(index SourceIndex, record *AnswerRecord) {
+	if record == nil {
+		return
+	}
+	record.Question.EvidenceRefs = publicQuestionEvidence(index, record.Question.EvidenceRefs)
+	record.Question.Adaptation.Reason = publicDecisionReason(PolicyDecision{Action: record.Question.Adaptation.Trigger})
+	if questionLeaksKnowledgeReference(index, record.Question.Text, evidenceIDSet(record.Question.EvidenceRefs)) {
+		record.Question.Text = publicQuestionSummary(record.Question.EvidenceRefs)
+	}
+	record.Assessment = publicAssessment(index, record.Assessment)
+	record.Decision.Reason = publicDecisionReason(record.Decision)
+}
+
+func publicAssessment(index SourceIndex, assessment Assessment) Assessment {
+	assessment.EvidenceRefs = publicQuestionEvidence(index, assessment.EvidenceRefs)
+	assessment.FactualErrors = publicGeneratedStrings(index, assessment.FactualErrors)
+	assessment.Strengths = publicGeneratedStrings(index, assessment.Strengths)
+	assessment.Gaps = publicGeneratedStrings(index, assessment.Gaps)
+	checks := make([]ClaimCheck, 0, len(assessment.ClaimChecks))
+	for _, check := range assessment.ClaimChecks {
+		if generatedTextLeaksKnowledgeReference(index, check.Claim) {
+			continue
+		}
+		check.EvidenceRefs = publicQuestionEvidence(index, check.EvidenceRefs)
+		checks = append(checks, check)
+	}
+	assessment.ClaimChecks = checks
+	return assessment
+}
+
+func publicGeneratedStrings(index SourceIndex, values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" || generatedTextLeaksKnowledgeReference(index, value) {
+			continue
+		}
+		result = append(result, value)
+	}
+	return result
+}
+
+func generatedTextLeaksKnowledgeReference(index SourceIndex, value string) bool {
+	return strings.TrimSpace(value) != "" && PublicGeneratedText(value, allEvidence(index)) == ""
+}
+
+func publicProfileEvidence(index SourceIndex, profile *Profile) {
+	if profile == nil {
+		return
+	}
+	for i := range profile.JD.Requirements {
+		profile.JD.Requirements[i].EvidenceRefs = publicQuestionEvidence(index, profile.JD.Requirements[i].EvidenceRefs)
+	}
+	for i := range profile.JD.Responsibilities {
+		profile.JD.Responsibilities[i].EvidenceRefs = publicQuestionEvidence(index, profile.JD.Responsibilities[i].EvidenceRefs)
+	}
+	for i := range profile.Resume.Projects {
+		profile.Resume.Projects[i].EvidenceRefs = publicQuestionEvidence(index, profile.Resume.Projects[i].EvidenceRefs)
+	}
+	for i := range profile.Coverage {
+		point := &profile.Coverage[i]
+		point.EvidenceRefs = publicQuestionEvidence(index, point.EvidenceRefs)
+		if len(point.EvidenceRefs) > 0 && point.EvidenceRefs[0].Kind == SourceKnowledge {
+			point.Label = concise(knowledgeQuestionLabel(point.EvidenceRefs[0].Quote), 120)
+		}
+	}
+}
+
+func publicQuestionAnchors(anchors []SourceAnchor) []SourceAnchor {
+	result := make([]SourceAnchor, 0, len(anchors))
+	for _, anchor := range anchors {
+		if anchor.Kind == SourceKnowledge {
+			anchor.Text = publicKnowledgeQuestion(anchor.Text)
+		}
+		result = append(result, anchor)
+	}
+	return result
+}
+
+func publicQuestionEvidence(index SourceIndex, refs []EvidenceRef) []EvidenceRef {
+	canonical := canonicalEvidence(index, refs)
+	for i := range canonical {
+		canonical[i].Quote = PublicEvidenceQuote(canonical[i])
+	}
+	return canonical
+}
+
+func evidenceForAnchors(anchors []SourceAnchor) []EvidenceRef {
+	refs := make([]EvidenceRef, 0, len(anchors))
+	for _, anchor := range anchors {
+		refs = append(refs, evidenceFromAnchor(anchor))
+	}
+	return refs
+}
+
+func evidenceIDSet(refs []EvidenceRef) map[string]struct{} {
+	result := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		result[ref.AnchorID] = struct{}{}
+	}
+	return result
+}
+
+func publicQuestionSummary(refs []EvidenceRef) string {
+	for _, ref := range refs {
+		if ref.Kind == SourceKnowledge {
+			return PublicEvidenceQuote(ref)
+		}
+	}
+	return "此前面试问题"
+}
+
+func publicDecisionReason(decision PolicyDecision) string {
+	switch decision.Action {
+	case PolicyInitial:
+		return "按当前覆盖目标生成首题。"
+	case PolicyPrerequisite:
+		return "上一轮存在知识或事实风险，先核对前置理解。"
+	case PolicyFollowUp:
+		return "根据上一轮评估继续追问当前能力。"
+	case PolicyAdvance:
+		return "当前覆盖点已完成，切换到尚未覆盖的能力。"
+	case PolicyComplete:
+		return "达到本场问题上限，完成面试。"
+	default:
+		return "根据本轮评估调整后续问题。"
+	}
 }
 
 func (s *Service) assessAnswer(ctx context.Context, session InterviewSession, question Question, answer AnswerPayload) (result Assessment, resultErr error) {
@@ -446,33 +614,37 @@ func (s *Service) assessAnswer(ctx context.Context, session InterviewSession, qu
 	if s.agent == nil {
 		return Assessment{}, unavailable("interview assessment is temporarily unavailable", errors.New("interview agent is not configured"))
 	}
+	anchors := assessmentAnchors(session, question)
+	questionAnchors := anchorsForEvidence(session.Sources, question.EvidenceRefs)
+	allowed := make(map[string]struct{}, len(questionAnchors))
+	for _, anchor := range questionAnchors {
+		allowed[anchor.ID] = struct{}{}
+	}
 	request := AssessAnswerRequest{
 		Question: question,
 		Answer:   answer,
-		Anchors:  assessmentAnchors(session, question),
+		Anchors:  anchors,
 		History:  session.Answers,
 	}
 	assessment, err := s.agent.AssessAnswer(ctx, request)
 	if err != nil {
 		return Assessment{}, unavailable("interview assessment is temporarily unavailable", fmt.Errorf("assess answer: %w", err))
 	}
-	if validationErr := validateAssessment(session.Sources, assessment); validationErr != nil {
+	if validationErr := validateAssessment(session.Sources, assessment, allowed); validationErr != nil {
 		request.Repair = &RepairInstruction{
 			Reason:          validationErr.Error(),
-			AllowedEvidence: allEvidence(session.Sources),
+			AllowedEvidence: evidenceForAnchors(questionAnchors),
 		}
 		assessment, err = s.agent.AssessAnswer(ctx, request)
 		if err != nil {
 			return Assessment{}, unavailable("interview assessment is temporarily unavailable", fmt.Errorf("repair assessment after %v: %w", validationErr, err))
 		}
-		if repairValidationErr := validateAssessment(session.Sources, assessment); repairValidationErr != nil {
+		if repairValidationErr := validateAssessment(session.Sources, assessment, allowed); repairValidationErr != nil {
 			return Assessment{}, unavailable("interview assessment could not produce a valid grounded result", fmt.Errorf("assessment repair validation: %w", repairValidationErr))
 		}
 	}
 	assessment = normalizeAssessment(assessment)
-	if len(assessment.EvidenceRefs) == 0 {
-		assessment.EvidenceRefs = canonicalEvidence(session.Sources, question.EvidenceRefs)
-	} else {
+	if len(assessment.EvidenceRefs) > 0 {
 		assessment.EvidenceRefs = canonicalEvidence(session.Sources, assessment.EvidenceRefs)
 	}
 	for i := range assessment.ClaimChecks {
@@ -520,10 +692,16 @@ func (s *Service) generateReport(ctx context.Context, session InterviewSession) 
 	if s.agent == nil {
 		return Report{}, unavailable("interview report generation is temporarily unavailable", errors.New("interview agent is not configured"))
 	}
+	reporterSnapshot := cloneSession(InterviewSession{Profile: session.Profile, Answers: session.Answers})
+	publicProfileEvidence(session.Sources, &reporterSnapshot.Profile)
+	for index := range reporterSnapshot.Answers {
+		publicRecordEvidence(session.Sources, &reporterSnapshot.Answers[index])
+	}
+	publicAnchors := publicQuestionAnchors(allAnchors(session.Sources))
 	request := GenerateReportRequest{
-		Profile: session.Profile,
-		Answers: session.Answers,
-		Anchors: allAnchors(session.Sources),
+		Profile: reporterSnapshot.Profile,
+		Answers: reporterSnapshot.Answers,
+		Anchors: publicAnchors,
 	}
 	draft, err := s.agent.GenerateReport(ctx, request)
 	if err != nil {
@@ -532,7 +710,7 @@ func (s *Service) generateReport(ctx context.Context, session InterviewSession) 
 	if validationErr := validateReportDraft(session.Sources, draft); validationErr != nil {
 		request.Repair = &RepairInstruction{
 			Reason:          validationErr.Error(),
-			AllowedEvidence: allEvidence(session.Sources),
+			AllowedEvidence: evidenceForAnchors(publicAnchors),
 		}
 		draft, err = s.agent.GenerateReport(ctx, request)
 		if err != nil {
@@ -556,15 +734,15 @@ func (s *Service) generateReport(ctx context.Context, session InterviewSession) 
 		})
 	}
 	generatedAt := s.clock.Now()
-	snapshot := cloneSession(InterviewSession{Profile: session.Profile, Answers: session.Answers})
+	privateSnapshot := cloneSession(InterviewSession{Profile: session.Profile, Answers: session.Answers})
 	return Report{
 		OverallScore: scoreReport(session.Answers),
 		Summary:      strings.TrimSpace(draft.Summary),
 		Strengths:    nonNilStrings(draft.Strengths),
 		Gaps:         nonNilStrings(draft.Gaps),
 		EvidenceRefs: canonicalEvidence(session.Sources, draft.EvidenceRefs),
-		Profile:      snapshot.Profile,
-		Turns:        snapshot.Answers,
+		Profile:      privateSnapshot.Profile,
+		Turns:        privateSnapshot.Answers,
 		Audit: ReportAudit{
 			ClientSessionID: session.ClientSessionID,
 			StartedAt:       session.StartedAt,
@@ -579,19 +757,31 @@ func scoreReport(records []AnswerRecord) int {
 	if len(records) == 0 {
 		return 0
 	}
-	total := 0
-	maximum := 0
+	total := 0.0
 	for _, record := range records {
 		assessment := record.Assessment
-		if record.Question.Kind == QuestionKnowledge || record.Question.Kind == QuestionPrerequisite && !hasResumeEvidence(record.Question) {
-			total += assessment.Correctness + assessment.Depth + assessment.Specificity + assessment.Tradeoffs
-			maximum += 20
+		if usesKnowledgeRubric(record.Question) {
+			score := assessment.Correctness + assessment.Depth + assessment.Specificity + assessment.Tradeoffs
+			total += float64(score) / 20 * 100
 			continue
 		}
-		total += assessment.Correctness + assessment.Depth + assessment.Specificity + assessment.Ownership + assessment.Metrics + assessment.Tradeoffs
-		maximum += 30
+		score := assessment.Correctness + assessment.Depth + assessment.Specificity + assessment.Ownership + assessment.Metrics + assessment.Tradeoffs
+		total += float64(score) / 30 * 100
 	}
-	return int(math.Round(float64(total) / float64(maximum) * 100))
+	return int(math.Round(total / float64(len(records))))
+}
+
+func usesKnowledgeRubric(question Question) bool {
+	switch question.Kind {
+	case QuestionKnowledge:
+		return true
+	case QuestionProject, QuestionBehavioral:
+		return false
+	case QuestionFollowUp, QuestionPrerequisite:
+		return !hasResumeEvidence(question)
+	default:
+		return false
+	}
 }
 
 func hasResumeEvidence(question Question) bool {
@@ -603,21 +793,140 @@ func hasResumeEvidence(question Question) bool {
 	return false
 }
 
-func validateQuestionDraft(index SourceIndex, draft QuestionDraft, allowed map[string]struct{}) error {
+func validateQuestionDraft(index SourceIndex, draft QuestionDraft, allowed map[string]struct{}, history []AnswerRecord) error {
 	if strings.TrimSpace(draft.Text) == "" {
 		return errors.New("question text is empty")
 	}
-	return validateEvidenceRefs(index, draft.EvidenceRefs, allowed, true)
+	if err := validateQuestionEvidenceRefs(index, draft.EvidenceRefs, allowed, true); err != nil {
+		return err
+	}
+	if questionLeaksKnowledgeReference(index, draft.Text, allowed) {
+		return errors.New("question text exposes private knowledge reference content")
+	}
+	if repeatsRecentQuestion(draft.Text, history) {
+		return errors.New("question text repeats a recent interview question")
+	}
+	return nil
+}
+
+func validateQuestionEvidenceRefs(index SourceIndex, refs []EvidenceRef, allowed map[string]struct{}, require bool) error {
+	if require && len(refs) == 0 {
+		return errors.New("at least one evidence reference is required")
+	}
+	for _, ref := range refs {
+		anchor, exists := index.Anchors[ref.AnchorID]
+		if !exists {
+			return fmt.Errorf("unknown anchor %q", ref.AnchorID)
+		}
+		if allowed != nil {
+			if _, exists := allowed[ref.AnchorID]; !exists {
+				return fmt.Errorf("anchor %q is outside the allowed evidence set", ref.AnchorID)
+			}
+		}
+		if ref.SourceID != anchor.SourceID || ref.Kind != anchor.Kind || ref.Locator != anchor.Locator {
+			return fmt.Errorf("metadata does not match anchor %q", ref.AnchorID)
+		}
+		expected := evidenceFromAnchor(anchor)
+		expected.Quote = PublicEvidenceQuote(expected)
+		if normalizeEvidenceText(ref.Quote) != normalizeEvidenceText(expected.Quote) {
+			return fmt.Errorf("public quote does not match anchor %q", ref.AnchorID)
+		}
+	}
+	return nil
+}
+
+func questionLeaksKnowledgeReference(index SourceIndex, question string, allowed map[string]struct{}) bool {
+	if firstFoldedMarker(question, knowledgeReferenceMarkers) >= 0 {
+		return true
+	}
+	normalizedQuestion := normalizeQuestionGuardText(question)
+	if normalizedQuestion == "" {
+		return false
+	}
+	for _, anchorID := range index.Order {
+		if allowed != nil {
+			if _, exists := allowed[anchorID]; !exists {
+				continue
+			}
+		}
+		anchor, exists := index.Anchors[anchorID]
+		if !exists || anchor.Kind != SourceKnowledge {
+			continue
+		}
+		reference := knowledgeReferenceText(anchor.Text)
+		if reference == "" {
+			continue
+		}
+		fragments := []string{reference}
+		fragments = append(fragments, strings.FieldsFunc(reference, func(r rune) bool {
+			return r == '\n' || unicode.IsPunct(r)
+		})...)
+		for _, fragment := range fragments {
+			normalizedFragment := normalizeQuestionGuardText(fragment)
+			if len([]rune(normalizedFragment)) >= 6 && strings.Contains(normalizedQuestion, normalizedFragment) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func repeatsRecentQuestion(question string, history []AnswerRecord) bool {
+	normalized := normalizeQuestionGuardText(question)
+	if normalized == "" {
+		return false
+	}
+	start := max(0, len(history)-6)
+	for _, record := range history[start:] {
+		previous := normalizeQuestionGuardText(record.Question.Text)
+		if previous == "" {
+			continue
+		}
+		if normalized == previous {
+			return true
+		}
+		shorter, longer := normalized, previous
+		if len([]rune(shorter)) > len([]rune(longer)) {
+			shorter, longer = longer, shorter
+		}
+		shortLength := len([]rune(shorter))
+		longLength := len([]rune(longer))
+		if shortLength >= 12 && float64(shortLength)/float64(longLength) >= 0.85 && strings.Contains(longer, shorter) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeQuestionGuardText(value string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsLetter(r):
+			return unicode.ToLower(r)
+		case unicode.IsNumber(r):
+			return r
+		default:
+			return -1
+		}
+	}, value)
 }
 
 func validateReportDraft(index SourceIndex, draft ReportDraft) error {
 	if strings.TrimSpace(draft.Summary) == "" {
 		return errors.New("report summary is empty")
 	}
-	return validateEvidenceRefs(index, draft.EvidenceRefs, nil, true)
+	if generatedTextLeaksKnowledgeReference(index, draft.Summary) {
+		return errors.New("report summary exposes private knowledge reference content")
+	}
+	for _, item := range append(append([]string{}, draft.Strengths...), draft.Gaps...) {
+		if generatedTextLeaksKnowledgeReference(index, item) {
+			return errors.New("report narrative exposes private knowledge reference content")
+		}
+	}
+	return validateQuestionEvidenceRefs(index, draft.EvidenceRefs, nil, true)
 }
 
-func validateAssessment(index SourceIndex, assessment Assessment) error {
+func validateAssessment(index SourceIndex, assessment Assessment, allowed map[string]struct{}) error {
 	scores := []struct {
 		name  string
 		value int
@@ -634,20 +943,28 @@ func validateAssessment(index SourceIndex, assessment Assessment) error {
 			return fmt.Errorf("%s must be between 1 and 5", score.name)
 		}
 	}
-	if err := validateEvidenceRefs(index, assessment.EvidenceRefs, nil, false); err != nil {
+	for _, item := range append(append(append([]string{}, assessment.FactualErrors...), assessment.Strengths...), assessment.Gaps...) {
+		if generatedTextLeaksKnowledgeReference(index, item) {
+			return errors.New("assessment narrative exposes private knowledge reference content")
+		}
+	}
+	if err := validateEvidenceRefs(index, assessment.EvidenceRefs, allowed, true); err != nil {
 		return err
 	}
 	for i, check := range assessment.ClaimChecks {
 		if strings.TrimSpace(check.Claim) == "" {
 			return fmt.Errorf("claimChecks[%d].claim is empty", i)
 		}
+		if generatedTextLeaksKnowledgeReference(index, check.Claim) {
+			return fmt.Errorf("claimChecks[%d].claim exposes private knowledge reference content", i)
+		}
 		switch check.Verdict {
 		case ClaimSupported, ClaimContradicted:
-			if err := validateEvidenceRefs(index, check.EvidenceRefs, nil, true); err != nil {
+			if err := validateEvidenceRefs(index, check.EvidenceRefs, allowed, true); err != nil {
 				return fmt.Errorf("claimChecks[%d]: %w", i, err)
 			}
 		case ClaimUnverified, ClaimNotInMaterial:
-			if err := validateEvidenceRefs(index, check.EvidenceRefs, nil, false); err != nil {
+			if err := validateEvidenceRefs(index, check.EvidenceRefs, allowed, false); err != nil {
 				return fmt.Errorf("claimChecks[%d]: %w", i, err)
 			}
 		default:

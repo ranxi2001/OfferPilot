@@ -73,6 +73,30 @@ func TestKnowledgeScoreDoesNotPenalizeProjectOnlyRubricFields(t *testing.T) {
 	}
 }
 
+func TestKnowledgeFollowUpUsesKnowledgeRubric(t *testing.T) {
+	t.Parallel()
+
+	records := []AnswerRecord{{
+		Question: Question{
+			Kind: QuestionFollowUp,
+			EvidenceRefs: []EvidenceRef{{
+				Kind: SourceKnowledge,
+			}},
+		},
+		Assessment: Assessment{
+			Correctness: 5,
+			Depth:       5,
+			Specificity: 5,
+			Ownership:   1,
+			Metrics:     1,
+			Tradeoffs:   5,
+		},
+	}}
+	if score := scoreReport(records); score != 100 {
+		t.Fatalf("knowledge follow-up score = %d, want 100 without project-only ownership/metrics", score)
+	}
+}
+
 func policySession(area Focus) InterviewSession {
 	return InterviewSession{
 		Config: InterviewConfig{QuestionCount: 3},

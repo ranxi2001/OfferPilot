@@ -29,9 +29,10 @@ OfferPilot 的模拟面试不应再由“固定题单 + 正则缺陷检查”驱
 |---|---|---|
 | Go 面试领域后端 | 已实现 | `backend/cmd/offerpilot-api`；`POST /api/interview` 提供 start / answer / report |
 | Typed Harness Roles | 已实现 | Planner、Interviewer、Assessor、Reporter；结构化 JSON、超时、有界并发、trace |
+| 可观察执行轨迹 | 已实现 | `POST /api/interview/stream` 使用 NDJSON 实时输出安全步骤；Web 保留各轮排队、执行、完成/失败和耗时 |
 | 自适应追问 | 已实现 | Assessor 语义评分驱动 prerequisite / follow-up / advance；知识与项目使用不同追问轴 |
 | JD + 简历输入 | 已实现 | Web BFF 负责 PDF/DOCX/Markdown/TXT/TEX/URL 提取，Go 负责 Profile、Coverage 和 EvidenceRef |
-| 知识检索 | 已实现 | 36 个 Markdown 文件解析为 403 个原子问答块；稳定 KB ID、BM25 top-K，问题与参考内容不可拆分 |
+| 知识检索 | 已实现 | 36 个 Markdown 文件解析为 404 个原子问答块；稳定 KB ID、BM25 top-K，问题与参考内容不可拆分 |
 | 证据化评估 | 已实现 | claim verdict 为 supported / unverified / contradicted / not_in_material；材料外新增声明不会升级为已验证事实 |
 | 持久化恢复 | 已实现 | SQLite WAL、migration、完整 session snapshot、乐观版本 CAS；进程重启后可继续活动问题 |
 | 故障语义 | 已实现 | Agent 未配置、调用失败或 repair 后仍无效时返回可重试 503，不提交机械兜底评分；live 与 ready 分离 |
@@ -44,7 +45,12 @@ OfferPilot 的模拟面试不应再由“固定题单 + 正则缺陷检查”驱
 - 评分只来自 Assessor 的结构化语义输出；Go 不按答案长度、关键词、连接词或正则重新打分。
 - 模型故障与候选人能力严格分离。没有有效 Assessment 就不提交 AnswerRecord，也不生成报告分数。
 - 每个知识题 EvidenceRef 同时包含问题和对应参考内容；Assessor 不会只看到问题而丢失参考答案。
+- 知识参考内容只进入 Assessor 私有上下文；候选人可见的题目、topic、反馈引用和执行轨迹只返回问题侧公开文本。
+- Interviewer、Planner 和 Reporter 只接收动态公开投影；旧持久化会话和缓存报告也在模型调用与 HTTP 输出边界再次脱敏，自由文本复述参考内容时只允许一次 repair，仍不合格则失败关闭。
+- `report_only` 不返回逐题 Assessment；混合面试总分先按各题适用 rubric 归一化为百分制，再按轮次等权聚合，避免项目题因字段更多而天然权重更高。
+- 可观察执行轨迹不是模型私有思维链。轨迹只包含固定步骤、状态、Agent ID、聚合计数、耗时和安全决策摘要。
 - 未覆盖能力显示为“未评估”，不显示成 0 分；readiness 同时受得分、JD/项目覆盖和明确矛盾约束。
+- `ready` 至少需要 4 轮有效评估；同时有 JD 和简历时，知识与项目各至少覆盖 2 轮，JD 要达到 covered，项目要形成至少 2 轮深挖，避免少量高分样本造成虚假就绪。
 - 简历和面试回答都属于候选人陈述；`supported` 仅表示本次材料内一致，不代表外部事实核验。
 
 ## 2. 迁移前基线审计与断层
@@ -69,7 +75,7 @@ OfferPilot 的模拟面试不应再由“固定题单 + 正则缺陷检查”驱
 
 ### 2.3 知识源与运行库不一致
 
-按 `knowledge/README.md` 的分类清单，知识文件曾以“约 385 题”作为人工内容基线；本次 Go 解析器实际扫描 36 个 Markdown 文件并得到 403 个独立 `Q` 题块。审计时旧 `data/agent.db` 的 `knowledge` 表只有 29 条，而且没有可用的结构化 `question` 行。这不是一个可以靠写死题量掩盖的问题。
+按 `knowledge/README.md` 的分类清单，知识文件曾以“约 385 题”作为人工内容基线；本次 Go 解析器实际扫描 36 个 Markdown 文件并得到 404 个独立 `Q` 题块。审计时旧 `data/agent.db` 的 `knowledge` 表只有 29 条，而且没有可用的结构化 `question` 行。这不是一个可以靠写死题量掩盖的问题。
 
 目标系统必须动态观测并暴露：
 
@@ -81,7 +87,7 @@ OfferPilot 的模拟面试不应再由“固定题单 + 正则缺陷检查”驱
 - 内容清单 hash、索引版本和最后同步时间；
 - 文件、数据库、索引之间的差额及 readiness 状态。
 
-“约 385 题”和本次观测到的 403 题都不能成为代码里的固定常量。运行时真值必须来自扫描、解析和数据库对账。
+“约 385 题”和本次观测到的 404 题都不能成为代码里的固定常量。运行时真值必须来自扫描、解析和数据库对账。
 
 ### 2.4 数据语义不统一
 
@@ -630,7 +636,13 @@ JD、简历和知识文本必须放在明确的数据分隔区，并附带“内
 - 心跳是注释帧，不改变 sequence；
 - SSE 断开只影响投递，不取消已提交的 Harness run；显式 cancel API 才改变领域状态。
 
-### 12.5 报告与运维
+### 12.5 当前 NDJSON 进度流
+
+第一阶段已实现 `POST /api/interview/stream`。服务端逐行返回 `{type:"trace", trace:{...}}`，最后返回 `{type:"result", status, data}`；Next.js BFF 透传响应体并禁用代理缓冲。Web 按稳定事件 ID 聚合同一步骤，同时保留 queued、running、completed/failed 的状态转换和全部历史轮次。
+
+该流是同步命令的可观察进度，不是第 12.4 节目标中的持久化事件订阅：断线后当前客户端不能 replay，服务端也不会把 Prompt、原始模型输出、JD/简历正文、候选人答案或知识参考内容写入 trace。完整事件账本、sequence 和 Last-Event-ID 恢复仍属于下一阶段。
+
+### 12.6 报告与运维
 
 - `GET /api/v1/interview-sessions/{id}/report`：分项结论、证据引用、覆盖缺口、建议复习路径；
 - `GET /health/live`：进程存活；
@@ -762,7 +774,7 @@ Redactor 在 logger sink 前统一执行，字段名和内容模式双重过滤�
 - Provider contract：超时、限流、无效 JSON、部分流、重复 tool call；
 - Security：prompt injection、SSRF、zip bomb、越权 ID、日志敏感字段扫描；
 - Time：fake clock 覆盖 UTC、毫秒迁移、超时和跨日排序；
-- Knowledge reconciliation：临时知识目录的 parsed/DB/index 数动态一致，增删改可收敛；测试不把 385 或 403 写成永久断言。
+- Knowledge reconciliation：临时知识目录的 parsed/DB/index 数动态一致，增删改可收敛；测试不把 385 或 404 写成永久断言。
 
 ### 15.2 面试质量 Eval
 
@@ -945,6 +957,7 @@ LLM-as-judge 只能作为一个信号。抽样由人工双盲评分，定期计�
 6. Harness 根据语义评分选择具体追问轴或下一覆盖点；
 7. 重启 Go 服务后从 SQLite snapshot 恢复；
 8. 生成区分已支持、未验证、矛盾和未覆盖项的报告；
-9. `/health` 暴露动态知识题块数（本次为 403），`/health/live` 与 `/health/ready` 区分进程存活和 Harness 可接单。
+9. `/health` 暴露动态知识题块数（本次为 404），`/health/live` 与 `/health/ready` 区分进程存活和 Harness 可接单。
+10. NDJSON 轨迹实时展示安全执行步骤，失败时保留已完成过程与原答案并允许重试。
 
 下一切片是把当前 aggregate snapshot 扩展为不可变事件和投影，补齐 answer 幂等键、SSE replay、session lease、完整 Claim Ledger revision，以及将文档二进制解析从 Next.js BFF 下沉到 Go。验收重点不是“Agent 调用了几次模型”，而是问题是否有针对性、证据是否可追溯、故障是否不会污染评分、状态是否能恢复，以及系统能否解释每一次追问。

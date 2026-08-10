@@ -224,6 +224,47 @@ func TestInterviewAnswerPreservesUnverifiedClaimAndAdaptiveQuestion(t *testing.T
 	}
 }
 
+func TestInterviewAnswerScoreUsesQuestionFocusInsteadOfAssessmentEvidenceKind(t *testing.T) {
+	resumeRef := interview.EvidenceRef{
+		SourceID: "resume", Kind: interview.SourceResume, AnchorID: "resume:001", Locator: "segment:1", Quote: "候选人简历项目",
+	}
+	stub := &interviewStub{answer: interview.AnswerResponse{
+		InterviewID: "interview-1",
+		State:       interview.StateCompleted,
+		Feedback: interview.AnswerFeedback{
+			Focus:   interview.FocusKnowledge,
+			Summary: "知识题回答完整。",
+			Assessment: interview.Assessment{
+				Correctness: 5, Depth: 5, Specificity: 5, Ownership: 1, Metrics: 1, Tradeoffs: 5,
+				EvidenceRefs: []interview.EvidenceRef{resumeRef},
+			},
+		},
+		Progress:    interview.Progress{Answered: 1, Total: 1},
+		ReportReady: true,
+	}}
+	server := newTestServer(t, Config{ModelConfigured: true}, stub)
+	request := httptest.NewRequest(http.MethodPost, "/api/interview", strings.NewReader(
+		`{"action":"answer","interviewId":"interview-1","questionId":"question-1","answer":{"text":"回答","inputMode":"text"}}`,
+	))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Feedback struct {
+			Score            int    `json:"score"`
+			KnowledgeVerdict string `json:"knowledgeVerdict"`
+		} `json:"feedback"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Feedback.Score != 100 || payload.Feedback.KnowledgeVerdict != "correct" {
+		t.Fatalf("feedback used evidence-selected project rubric: %+v", payload.Feedback)
+	}
+}
+
 func TestInterviewBodyLimitReturns413(t *testing.T) {
 	server := newTestServer(t, Config{MaxInterviewBytes: 32, ModelConfigured: true}, &interviewStub{})
 	request := httptest.NewRequest(http.MethodPost, "/api/interview", strings.NewReader(`{"action":"start","materials":{"resume":{"text":"this body is deliberately too long"}}}`))

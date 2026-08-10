@@ -4,6 +4,13 @@ export type MaterialSource = 'upload' | 'paste' | 'url';
 export type InterviewAction = 'start' | 'answer' | 'report';
 export type ExecutionTraceStatus = 'queued' | 'running' | 'completed' | 'failed';
 
+export interface InterviewExecutionTransition {
+  status: ExecutionTraceStatus;
+  at: string;
+  detail?: string;
+  durationMs?: number;
+}
+
 export interface InterviewExecutionTrace {
   id: string;
   stage: string;
@@ -13,6 +20,7 @@ export interface InterviewExecutionTrace {
   agent?: string;
   at: string;
   durationMs?: number;
+  transitions?: InterviewExecutionTransition[];
 }
 
 export interface InterviewExecutionRun {
@@ -89,14 +97,15 @@ export interface ClaimCheck {
 
 export interface InterviewFeedback {
   questionId: string;
+  deferred?: boolean;
   score: number;
-  verdict: 'strong' | 'partial' | 'weak' | 'off_topic';
+  verdict: 'strong' | 'partial' | 'weak' | 'off_topic' | 'deferred';
   summary: string;
   strengths: string[];
   gaps: string[];
   claimChecks: ClaimCheck[];
   coachTip: string;
-  knowledgeVerdict?: 'correct' | 'partial' | 'incorrect' | 'not_applicable';
+  knowledgeVerdict?: 'correct' | 'partial' | 'incorrect' | 'not_applicable' | 'deferred';
   correction?: string;
   evidenceRefs?: EvidenceRef[];
 }

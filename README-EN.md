@@ -40,7 +40,7 @@ An exported sample report is available in [demo.md](./assets/demo.md).
 - Replaced fixed question lists and mechanical `next` calls with atomic answer assessment plus adaptive follow-up.
 - Moved semantic scoring into a typed Assessor; Go validates schema/evidence and applies deterministic policy only.
 - Added claim verdicts: `supported`, `unverified`, `contradicted`, and `not_in_material`.
-- The Go knowledge loader currently parses 403 question blocks from 36 Markdown files instead of trusting the stale 29-row database.
+- The Go knowledge loader currently parses 404 question blocks from 36 Markdown files instead of trusting the stale 29-row database.
 - Added the [Agent Harness and Go backend architecture](./docs/agent-harness-architecture.md) with editable draw.io source.
 - Added real API testing path with `.env` auto-loading for CLI and API server.
 - Added configurable OpenAI-compatible provider settings:

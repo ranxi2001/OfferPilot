@@ -67,3 +67,18 @@ func TestJDKnowledgeCoverageCarriesPrivateReferenceContext(t *testing.T) {
 		t.Fatalf("assessor did not receive the atomic knowledge reference: %+v", anchors)
 	}
 }
+
+func TestPublicGeneratedTextAllowsConceptsButRejectsReferenceCopy(t *testing.T) {
+	t.Parallel()
+
+	ref := EvidenceRef{
+		Kind:  SourceKnowledge,
+		Quote: "问题：ColBERT 如何工作？\n参考答案：ColBERT 会对每个 query token 与文档 token 做 MaxSim，再聚合局部匹配分数。",
+	}
+	if got := PublicGeneratedText("需要补充 MaxSim 的适用边界。", []EvidenceRef{ref}); got == "" {
+		t.Fatal("short technical concept was treated as private reference leakage")
+	}
+	if got := PublicGeneratedText("每个 query token 与文档 token 做 MaxSim，再聚合局部匹配分数。", []EvidenceRef{ref}); got != "" {
+		t.Fatalf("verbatim reference copy was not rejected: %q", got)
+	}
+}

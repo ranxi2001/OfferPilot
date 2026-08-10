@@ -18,11 +18,11 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 
 ![录音诊断 Demo](./assets/demo1.png)
 
-### 思维链处理卡片
+### 可审计处理轨迹
 
-录音处理不会再伪装成重复的用户消息，而是单独展示为“思维链 / 处理流程”卡片。卡片会展示转写状态、诊断状态、录音播放器、录音下载和转写文本。
+录音与模拟面试处理不会再伪装成重复的用户消息，而是单独展示可审计执行轨迹。轨迹保留排队、执行、完成/失败、耗时和安全的决策摘要；模型私有原始思维文本、Prompt、简历/JD 正文和知识参考答案不会进入轨迹。
 
-![思维链处理卡片](./assets/cot.png)
+![可审计处理轨迹](./assets/cot.png)
 
 ### Markdown 诊断报告
 
@@ -39,7 +39,7 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 - `answer` 原子返回本题结构化评估和下一道自适应问题，不再使用固定题单或机械 `next`。
 - Assessor 按语义生成 typed rubric；Go 仅校验 schema/证据并执行追问策略，不按字数、数字或关键词打分。
 - 简历与回答声明标记为 `supported / unverified / contradicted / not_in_material`，不会把候选人自述冒充外部事实。
-- 知识库启动时动态解析 Markdown：当前 36 个文件得到 403 个独立题块，不再沿用旧 SQLite 的 29 条残缺记录。
+- 知识库启动时动态解析 Markdown：当前 36 个文件得到 404 个独立题块，不再沿用旧 SQLite 的 29 条残缺记录。
 - 新增 [Agent Harness 与 Go 后端架构文档](./docs/agent-harness-architecture.md) 和可编辑 draw.io 图。
 - 打通真实 API 测试链路，CLI 和 API Server 启动时自动读取 `.env`。
 - 增加 OpenAI 兼容模型配置：
@@ -59,7 +59,7 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
   - `web/src/app/api/tts`
 - 浏览器录音改为导出 WAV，适配 Mimo ASR 的 `wav/mp3` 要求。
 - 新增录音上传诊断流程。
-- 新增录音诊断的思维链 / 处理流程卡片。
+- 新增录音诊断和模拟面试的可审计处理轨迹。
 - 支持录音回放和录音下载。
 - 使用 `remark-gfm` 支持 Markdown 表格渲染。
 - Assistant 回答尾部新增复制和保存 `.md`。
@@ -70,7 +70,7 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 
 | 模块 | 能力 | 状态 |
 | --- | --- | --- |
-| 面试诊断 | 输入问题和回答，输出评分、差距、改进建议 + CoT 思维链展示 | 已完成 |
+| 面试诊断 | 输入问题和回答，输出评分、差距、改进建议 + 可审计执行轨迹 | 已完成 |
 | 录音回答诊断 | 录音/上传音频 → ASR → 诊断 | 已完成 |
 | 自适应模拟面试 | JD + 简历证据 → Agent 出题 → 语义评估 → 动态追问 → 证据化报告 | 已完成 |
 | 简历分析 | 段落级诊断：STAR 结构、量化度、技术决策、个人贡献 | 已完成 |
@@ -78,7 +78,7 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 | 能力雷达 | 7 维度评分 + 学习路径推荐 + 诊断历史追踪 | 已完成 |
 | 报告导出 | Markdown / PDF 一键导出诊断报告 | 已完成 |
 | 多 Agent 协作 | 专家子 Agent + 并发池 | 已完成 |
-| 知识检索 | SQLite FTS5 + embedding 向量（路线: sqlite-vec → zvec/Qdrant） | 已完成 |
+| 知识检索 | Markdown 原子问答块 + 内存 BM25 top-K（向量/重排为后续演进） | 已完成 |
 
 ## 架构概览
 
@@ -217,10 +217,10 @@ npm run embed
 1. 点击输入框左侧麦克风按钮。
 2. 说出面试回答。
 3. 再次点击停止录音。
-4. OfferPilot 在思维链卡片中保存录音。
+4. OfferPilot 在可审计处理轨迹中保存录音处理状态。
 5. 浏览器上传 WAV 到 `/api/transcribe`。
 6. 后端调用 Mimo ASR。
-7. 转写文本展示在思维链卡片中。
+7. 转写文本展示在可审计处理轨迹中。
 8. 转写文本进入面试诊断 Agent。
 9. 诊断结果支持复制或保存为 Markdown。
 

@@ -64,6 +64,7 @@ type webClaimCheck struct {
 
 type webFeedback struct {
 	QuestionID       string           `json:"questionId"`
+	Deferred         bool             `json:"deferred,omitempty"`
 	Score            int              `json:"score"`
 	Verdict          string           `json:"verdict"`
 	Summary          string           `json:"summary"`
@@ -310,10 +311,16 @@ func (s *Server) handleInterview(response http.ResponseWriter, request *http.Req
 			mapped := mapQuestion(*output.NextQuestion, output.Progress.Current, nil)
 			next = &mapped
 		}
+		var feedback any
+		if output.Feedback.Deferred {
+			feedback = deferredFeedback(input.QuestionID)
+		} else {
+			feedback = mapFeedback(input.QuestionID, output.Feedback.Assessment, output.Feedback.Summary, feedbackFocus(output.Feedback.Focus))
+		}
 		writeJSON(response, http.StatusOK, map[string]any{
 			"interviewId":  output.InterviewID,
 			"state":        webState(output.State),
-			"feedback":     mapFeedback(input.QuestionID, output.Feedback.Assessment, output.Feedback.Summary, questionFocusFromEvidence(output.Feedback.Assessment.EvidenceRefs)),
+			"feedback":     feedback,
 			"nextQuestion": next,
 			"progress":     mapProgress(output.Progress),
 			"reportReady":  output.ReportReady,
@@ -372,18 +379,22 @@ func mapProfile(profile interview.Profile) webCandidateProfile {
 }
 
 func mapQuestion(question interview.Question, index int, profile *interview.Profile) webQuestion {
+	return mapQuestionWithPrivacy(question, index, profile, question.EvidenceRefs)
+}
+
+func mapQuestionWithPrivacy(question interview.Question, index int, profile *interview.Profile, privacyRefs []interview.EvidenceRef) webQuestion {
 	focus := questionFocus(question)
 	topic := question.CoveragePointID
 	if profile != nil {
 		for _, point := range profile.Coverage {
 			if point.ID == question.CoveragePointID {
-				topic = point.Label
+				topic = publicCoverageTopic(point)
 				break
 			}
 		}
 	}
 	if (topic == "" || topic == question.CoveragePointID) && len(question.EvidenceRefs) > 0 {
-		topic = question.EvidenceRefs[0].Quote
+		topic = interview.PublicEvidenceQuote(question.EvidenceRefs[0])
 	}
 	topic = truncateRunes(topic, 90)
 
@@ -419,7 +430,7 @@ func mapQuestion(question interview.Question, index int, profile *interview.Prof
 	return webQuestion{
 		ID:               question.ID,
 		Index:            index,
-		Text:             question.Text,
+		Text:             publicQuestionText(question, privacyRefs),
 		Kind:             kind,
 		Focus:            focus,
 		Topic:            topic,
@@ -430,6 +441,19 @@ func mapQuestion(question interview.Question, index int, profile *interview.Prof
 		EvidenceRefs:     mapQuestionEvidenceRefs(question.EvidenceRefs),
 		Adaptation:       adaptation,
 	}
+}
+
+func publicQuestionText(question interview.Question, privacyRefs []interview.EvidenceRef) string {
+	privacyRefs = mergePrivacyEvidence(privacyRefs, question.EvidenceRefs)
+	if text := interview.PublicGeneratedText(question.Text, privacyRefs); text != "" {
+		return text
+	}
+	for _, ref := range question.EvidenceRefs {
+		if ref.Kind == interview.SourceKnowledge {
+			return interview.PublicEvidenceQuote(ref)
+		}
+	}
+	return "当前问题内容已隐藏。"
 }
 
 func questionFocus(question interview.Question) string {
@@ -444,11 +468,9 @@ func questionFocus(question interview.Question) string {
 	return "knowledge"
 }
 
-func questionFocusFromEvidence(refs []interview.EvidenceRef) string {
-	for _, ref := range refs {
-		if ref.Kind == interview.SourceResume {
-			return "project"
-		}
+func feedbackFocus(focus interview.Focus) string {
+	if focus == interview.FocusProjects {
+		return "project"
 	}
 	return "knowledge"
 }
@@ -460,7 +482,7 @@ func mapEvidenceRefs(refs []interview.EvidenceRef) []webEvidenceRef {
 			ID:      ref.AnchorID,
 			Source:  string(ref.Kind),
 			Label:   evidenceLabel(ref),
-			Excerpt: ref.Quote,
+			Excerpt: interview.PublicEvidenceQuote(ref),
 			Locator: ref.Locator,
 		})
 	}
@@ -468,30 +490,24 @@ func mapEvidenceRefs(refs []interview.EvidenceRef) []webEvidenceRef {
 }
 
 func mapQuestionEvidenceRefs(refs []interview.EvidenceRef) []webEvidenceRef {
-	result := mapEvidenceRefs(refs)
-	for index, ref := range refs {
-		if ref.Kind == interview.SourceKnowledge {
-			result[index].Excerpt = knowledgeQuestionExcerpt(ref.Quote)
-		}
-	}
-	return result
+	return mapEvidenceRefs(refs)
 }
 
 func knowledgeQuestionExcerpt(value string) string {
-	for _, line := range strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n") {
-		line = strings.TrimSpace(line)
-		for _, prefix := range []string{"问题：", "问题:"} {
-			if strings.HasPrefix(line, prefix) {
-				return truncateRunes(line, 180)
-			}
-		}
+	return truncateRunes(interview.PublicEvidenceQuote(interview.EvidenceRef{Kind: interview.SourceKnowledge, Quote: value}), 180)
+}
+
+func publicCoverageTopic(point interview.CoveragePoint) string {
+	if len(point.EvidenceRefs) > 0 && point.EvidenceRefs[0].Kind == interview.SourceKnowledge {
+		return interview.PublicEvidenceQuote(point.EvidenceRefs[0])
 	}
-	for _, marker := range []string{"参考内容：", "参考内容:"} {
-		if position := strings.Index(value, marker); position > 0 {
-			return truncateRunes(value[:position], 180)
-		}
+	if strings.Contains(strings.ToLower(point.Label), "参考内容") ||
+		strings.Contains(strings.ToLower(point.Label), "参考答案") ||
+		strings.Contains(strings.ToLower(point.Label), "reference content") ||
+		strings.Contains(strings.ToLower(point.Label), "reference answer") {
+		return knowledgeQuestionExcerpt(point.Label)
 	}
-	return truncateRunes(value, 180)
+	return point.Label
 }
 
 func evidenceLabel(ref interview.EvidenceRef) string {
@@ -520,6 +536,24 @@ func mapProgress(progress interview.Progress) webProgress {
 }
 
 func mapFeedback(questionID string, assessment interview.Assessment, summary, focus string) webFeedback {
+	return mapFeedbackWithPrivacy(questionID, assessment, summary, focus, assessment.EvidenceRefs)
+}
+
+func mapFeedbackWithPrivacy(questionID string, assessment interview.Assessment, summary, focus string, privacyRefs []interview.EvidenceRef) webFeedback {
+	privacyRefs = mergePrivacyEvidence(privacyRefs, assessment.EvidenceRefs)
+	assessment.FactualErrors = publicNarratives(assessment.FactualErrors, privacyRefs)
+	assessment.Strengths = publicNarratives(assessment.Strengths, privacyRefs)
+	assessment.Gaps = publicNarratives(assessment.Gaps, privacyRefs)
+	publicChecks := make([]interview.ClaimCheck, 0, len(assessment.ClaimChecks))
+	for _, check := range assessment.ClaimChecks {
+		if interview.PublicGeneratedText(check.Claim, privacyRefs) == "" {
+			continue
+		}
+		publicChecks = append(publicChecks, check)
+	}
+	assessment.ClaimChecks = publicChecks
+	summary = interview.PublicGeneratedText(summary, privacyRefs)
+
 	score := assessmentScoreForFocus(assessment, focus)
 	verdict := "weak"
 	switch {
@@ -572,37 +606,125 @@ func mapFeedback(questionID string, assessment interview.Assessment, summary, fo
 	return feedback
 }
 
+func deferredFeedback(questionID string) webFeedback {
+	return webFeedback{
+		QuestionID:       questionID,
+		Deferred:         true,
+		Verdict:          "deferred",
+		Summary:          "本轮反馈已延迟至最终报告。",
+		Strengths:        []string{},
+		Gaps:             []string{},
+		ClaimChecks:      []webClaimCheck{},
+		CoachTip:         "",
+		KnowledgeVerdict: "deferred",
+	}
+}
+
 func mapReport(interviewID string, report interview.Report) webReport {
+	privacyRefs := reportPrivacyEvidence(report)
 	turns := make([]webTurn, 0, len(report.Turns))
 	for index, record := range report.Turns {
 		turns = append(turns, webTurn{
-			Question: mapQuestion(record.Question, index+1, &report.Profile),
+			Question: mapQuestionWithPrivacy(record.Question, index+1, &report.Profile, privacyRefs),
 			Answer:   record.Answer.Text,
-			Feedback: mapFeedback(record.Question.ID, record.Assessment, feedbackSummary(record.Assessment), questionFocus(record.Question)),
+			Feedback: mapFeedbackWithPrivacy(record.Question.ID, record.Assessment, feedbackSummary(record.Assessment), questionFocus(record.Question), privacyRefs),
 		})
 	}
 	dimensions := reportDimensions(report.Turns)
+	for index := range dimensions {
+		dimensions[index].Evidence = publicNarratives(dimensions[index].Evidence, privacyRefs)
+	}
 	jdCoverage := reportJDCoverage(report.Profile, report.Turns)
+	for index := range jdCoverage {
+		if requirement := interview.PublicGeneratedText(jdCoverage[index].Requirement, privacyRefs); requirement != "" {
+			jdCoverage[index].Requirement = requirement
+		} else {
+			jdCoverage[index].Requirement = "JD 要求"
+		}
+	}
 	projectCoverage := reportProjectCoverage(report.Profile, report.Turns)
+	for index := range projectCoverage {
+		projectCoverage[index].Risks = publicNarratives(projectCoverage[index].Risks, privacyRefs)
+	}
 	readiness := reportReadiness(report.OverallScore, report.Profile, report.Turns, jdCoverage, projectCoverage)
-	nextDrills := nonNilStrings(report.Gaps)
+	publicStrengths := publicNarratives(report.Strengths, privacyRefs)
+	publicGaps := publicNarratives(report.Gaps, privacyRefs)
+	nextDrills := nonNilStrings(publicGaps)
 	if len(nextDrills) == 0 {
 		nextDrills = []string{"针对本轮证据重答一遍，并补足个人职责、测量口径与取舍。"}
+	}
+	summary := interview.PublicGeneratedText(report.Summary, privacyRefs)
+	if summary == "" {
+		summary = "本轮面试已完成，报告仅展示可公开且有证据支持的结论。"
 	}
 	return webReport{
 		InterviewID:     interviewID,
 		State:           "completed",
 		OverallScore:    report.OverallScore,
 		Readiness:       readiness,
-		Summary:         report.Summary,
+		Summary:         summary,
 		Dimensions:      dimensions,
-		Strengths:       nonNilStrings(report.Strengths),
-		Risks:           nonNilStrings(report.Gaps),
+		Strengths:       nonNilStrings(publicStrengths),
+		Risks:           nonNilStrings(publicGaps),
 		JDCoverage:      jdCoverage,
 		ProjectCoverage: projectCoverage,
 		Turns:           turns,
 		NextDrills:      nextDrills,
 	}
+}
+
+func publicNarratives(values []string, privacyRefs []interview.EvidenceRef) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if public := interview.PublicGeneratedText(value, privacyRefs); public != "" {
+			result = appendUniqueString(result, public)
+		}
+	}
+	return result
+}
+
+func reportPrivacyEvidence(report interview.Report) []interview.EvidenceRef {
+	refs := append([]interview.EvidenceRef{}, report.EvidenceRefs...)
+	for _, point := range report.Profile.JD.Requirements {
+		refs = mergePrivacyEvidence(refs, point.EvidenceRefs)
+	}
+	for _, point := range report.Profile.JD.Responsibilities {
+		refs = mergePrivacyEvidence(refs, point.EvidenceRefs)
+	}
+	for _, point := range report.Profile.Resume.Projects {
+		refs = mergePrivacyEvidence(refs, point.EvidenceRefs)
+	}
+	for _, point := range report.Profile.Coverage {
+		refs = mergePrivacyEvidence(refs, point.EvidenceRefs)
+	}
+	for _, record := range report.Turns {
+		refs = mergePrivacyEvidence(refs, record.Question.EvidenceRefs)
+		refs = mergePrivacyEvidence(refs, record.Assessment.EvidenceRefs)
+		for _, check := range record.Assessment.ClaimChecks {
+			refs = mergePrivacyEvidence(refs, check.EvidenceRefs)
+		}
+	}
+	return refs
+}
+
+func mergePrivacyEvidence(current, additional []interview.EvidenceRef) []interview.EvidenceRef {
+	result := append([]interview.EvidenceRef{}, current...)
+	positions := make(map[string]int, len(result))
+	for index, ref := range result {
+		positions[string(ref.Kind)+"\x00"+ref.SourceID+"\x00"+ref.AnchorID] = index
+	}
+	for _, ref := range additional {
+		key := string(ref.Kind) + "\x00" + ref.SourceID + "\x00" + ref.AnchorID
+		if position, exists := positions[key]; exists {
+			if len([]rune(ref.Quote)) > len([]rune(result[position].Quote)) {
+				result[position] = ref
+			}
+			continue
+		}
+		positions[key] = len(result)
+		result = append(result, ref)
+	}
+	return result
 }
 
 func reportDimensions(turns []interview.AnswerRecord) []webDimension {
@@ -709,12 +831,9 @@ func adaptationReason(adaptation interview.QuestionAdaptation) string {
 			return "上一轮回答仍不够具体，继续追问可核验细节。"
 		}
 	case interview.PolicyAdvance:
-		if strings.TrimSpace(adaptation.Reason) != "" {
-			return adaptation.Reason
-		}
 		return "当前覆盖点已完成，切换到尚未覆盖的岗位或项目能力。"
 	default:
-		return adaptation.Reason
+		return "根据本轮评估调整后续问题。"
 	}
 }
 
@@ -771,37 +890,53 @@ func reportReadiness(score int, profile interview.Profile, turns []interview.Ans
 	if score < 55 || len(turns) == 0 {
 		return "not_ready"
 	}
+	if len(turns) < 4 {
+		return "borderline"
+	}
 
 	hasJD := len(profile.JD.Requirements)+len(profile.JD.Responsibilities) > 0
 	hasProjects := len(profile.Resume.Projects) > 0
+	knowledgeTurns := 0
+	projectTurns := 0
+	for _, turn := range turns {
+		if questionFocus(turn.Question) == "project" {
+			projectTurns++
+		} else {
+			knowledgeTurns++
+		}
+	}
+
 	coverageComplete := true
 	if hasJD {
-		coverageComplete = false
+		covered := 0
 		for _, item := range jd {
-			if item.Status != "missing" {
-				coverageComplete = true
-				break
+			if item.Status == "covered" {
+				covered++
 			}
 		}
+		required := minInt(2, len(jd))
+		coverageComplete = required > 0 && covered >= required
 	}
 	if hasProjects {
 		projectCovered := false
 		for _, item := range projects {
-			if item.Depth > 0 {
+			if item.Depth >= 2 {
 				projectCovered = true
 				break
 			}
 		}
 		coverageComplete = coverageComplete && projectCovered
 	}
-	if !hasJD && !hasProjects {
-		coverageComplete = false
-		for _, turn := range turns {
-			if questionFocus(turn.Question) == "knowledge" {
-				coverageComplete = true
-				break
-			}
-		}
+
+	switch {
+	case hasJD && hasProjects:
+		coverageComplete = coverageComplete && knowledgeTurns >= 2 && projectTurns >= 2
+	case hasJD:
+		coverageComplete = coverageComplete && knowledgeTurns >= 3
+	case hasProjects:
+		coverageComplete = coverageComplete && projectTurns >= 3
+	default:
+		coverageComplete = knowledgeTurns >= 3
 	}
 
 	if score >= 75 && coverageComplete && !hasCriticalInterviewRisk(turns) {

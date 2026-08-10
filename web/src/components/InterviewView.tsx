@@ -27,6 +27,7 @@ import {
 import { ExecutionTimeline } from '@/components/ExecutionTimeline';
 import { MaterialInput } from '@/components/MaterialInput';
 import { InterviewRequestError, interviewClient } from '@/lib/interview-client';
+import { failExecutionInRuns, mergeTraceIntoRuns } from '@/lib/execution-trace';
 import type {
   CandidateProfile,
   InterviewAction,
@@ -186,14 +187,7 @@ export function InterviewView() {
 
   function recordExecutionTrace(runId: string, trace: InterviewExecutionTrace) {
     if (!mountedRef.current) return;
-    setExecutionRuns((current) => current.map((run) => {
-      if (run.id !== runId) return run;
-      const position = run.steps.findIndex((step) => step.id === trace.id);
-      const steps = [...run.steps];
-      if (position >= 0) steps[position] = trace;
-      else steps.push(trace);
-      return { ...run, steps };
-    }));
+    setExecutionRuns((current) => mergeTraceIntoRuns(current, runId, trace));
     if (trace.status === 'queued' || trace.status === 'running') {
       setBusyLabel(trace.detail || trace.label);
     }
@@ -208,27 +202,7 @@ export function InterviewView() {
 
   function failExecution(runId: string, message: string) {
     const finishedAt = new Date().toISOString();
-    setExecutionRuns((current) => current.map((run) => {
-      if (run.id !== runId) return run;
-      let hasFailedStep = false;
-      const steps = run.steps.map((step) => {
-        if (step.status === 'failed') hasFailedStep = true;
-        if (step.status !== 'running' && step.status !== 'queued') return step;
-        hasFailedStep = true;
-        return { ...step, status: 'failed' as const, detail: step.detail || message };
-      });
-      if (!hasFailedStep) {
-        steps.push({
-          id: `${run.id}:failed`,
-          stage: 'request',
-          label: '本次执行未提交',
-          detail: message,
-          status: 'failed',
-          at: finishedAt,
-        });
-      }
-      return { ...run, status: 'failed', finishedAt, steps };
-    }));
+    setExecutionRuns((current) => failExecutionInRuns(current, runId, message, finishedAt));
   }
 
   function handleExecutionError(errorValue: unknown, operation: InterviewAction, runId: string) {
@@ -683,25 +657,29 @@ export function InterviewView() {
                     <VerdictBadge verdict={feedback.verdict} />
                     <h3 className="mt-3 text-base font-semibold text-primary">{feedback.summary}</h3>
                   </div>
-                  <div className="flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
-                    <span className="text-3xl font-bold text-primary">{feedback.score}</span>
-                    <span className="text-[10px] text-slate-400">/ 100</span>
-                  </div>
+                  {!feedback.deferred && (
+                    <div className="flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
+                      <span className="text-3xl font-bold text-primary">{feedback.score}</span>
+                      <span className="text-[10px] text-slate-400">/ 100</span>
+                    </div>
+                  )}
                 </div>
 
-                {feedback.correction && (
+                {!feedback.deferred && feedback.correction && (
                   <div className="mt-4 border-l-2 border-red-500 bg-red-50 px-4 py-3">
                     <div className="mb-1 text-xs font-semibold text-red-700">事实纠正</div>
                     <p className="text-xs leading-5 text-red-700">{feedback.correction}</p>
                   </div>
                 )}
 
-                <div className="mt-5 grid gap-5 md:grid-cols-2">
-                  <FeedbackList title="站得住的部分" items={feedback.strengths} positive />
-                  <FeedbackList title="继续追的漏洞" items={feedback.gaps} />
-                </div>
+                {!feedback.deferred && (
+                  <div className="mt-5 grid gap-5 md:grid-cols-2">
+                    <FeedbackList title="站得住的部分" items={feedback.strengths} positive />
+                    <FeedbackList title="继续追的漏洞" items={feedback.gaps} />
+                  </div>
+                )}
 
-                {feedback.claimChecks.length > 0 && (
+                {!feedback.deferred && feedback.claimChecks.length > 0 && (
                   <div className="mt-5 border-t border-slate-100 pt-4">
                     <h4 className="mb-3 text-xs font-semibold text-slate-500">简历陈述核对</h4>
                     <div className="space-y-2">
@@ -726,9 +704,11 @@ export function InterviewView() {
                   </div>
                 )}
 
-                <div className="mt-5 rounded-md bg-sky-50 px-4 py-3 text-xs leading-5 text-sky-800">
-                  <span className="font-semibold">下一次这样答：</span> {feedback.coachTip}
-                </div>
+                {!feedback.deferred && (
+                  <div className="mt-5 rounded-md bg-sky-50 px-4 py-3 text-xs leading-5 text-sky-800">
+                    <span className="font-semibold">下一次这样答：</span> {feedback.coachTip}
+                  </div>
+                )}
               </section>
 
               <div className="flex justify-end">
@@ -958,6 +938,7 @@ function VerdictBadge({ verdict }: { verdict: InterviewFeedback['verdict'] }) {
     partial: ['部分成立', 'bg-amber-50 text-amber-700'],
     weak: ['存在漏洞', 'bg-red-50 text-red-700'],
     off_topic: ['偏离问题', 'bg-slate-100 text-slate-600'],
+    deferred: ['报告汇总', 'bg-slate-100 text-slate-600'],
   }[verdict];
   return <span className={`inline-flex rounded px-2 py-1 text-[11px] font-semibold ${config[1]}`}>{config[0]}</span>;
 }

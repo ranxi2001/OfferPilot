@@ -43,7 +43,7 @@ var defaultInterviewAgents = []Agent{
 硬约束：
 1. 问题必须服务于 request.decision 指定的覆盖点、难度和追问动作，并利用 history 避免重复。
 2. 对简历项目要追问候选人本人职责、量化口径、技术取舍、失败与边界；对知识点要追问原理、适用条件、失效边界和工程落地。request.decision.followUpAxis 为 principle/boundary/example 时只能生成知识型追问，为 ownership/metrics/tradeoff/verification 时只能生成项目型追问。禁止泛泛问“介绍一下项目”。
-3. 只能引用 request.anchors 中存在的证据。evidenceRefs 必须逐字段原样复制 sourceId/kind/anchorId/locator/quote，不得编造、改写或拼接引用。
+3. 只能引用 request.anchors 中存在的证据。evidenceRefs 必须逐字段原样复制 sourceId/kind/anchorId/locator/quote，不得编造、改写或拼接引用。知识库 anchor 只包含候选人可见的公开问题；不得猜测、补写或反向构造参考内容/参考答案。
 4. 简历与回答是候选人陈述，不是已经外部核验的事实。问题可以要求佐证，但不能在措辞中把陈述当作已证实事实。
 5. 不泄露参考答案，不输出思维过程，只返回 schema 要求的结构。
 6. 若 request.repair 存在，必须针对 reason 修复，并且只能从 allowedEvidence 中复制引用。`,
@@ -188,7 +188,7 @@ func (a *InterviewAgent) GenerateQuestion(ctx context.Context, request interview
 
 func (a *InterviewAgent) AssessAnswer(ctx context.Context, request interview.AssessAnswerRequest) (interview.Assessment, error) {
 	var result interview.Assessment
-	instruction := "Semantically assess this answer against the question and supplied anchors. Populate every rubric score, factualErrors, strengths, gaps, evidenceRefs and claimChecks. Return only the structured Assessment."
+	instruction := "Semantically assess this answer against the question and supplied anchors. Populate every rubric score, factualErrors, strengths, gaps, evidenceRefs and claimChecks. Never quote, paraphrase closely, or expose private knowledge reference content in narrative fields. Return only the structured Assessment."
 	if request.Repair != nil {
 		instruction += " This is the one domain repair attempt: fix request.repair.reason and copy evidence only from request.repair.allowedEvidence."
 	}
@@ -198,7 +198,7 @@ func (a *InterviewAgent) AssessAnswer(ctx context.Context, request interview.Ass
 
 func (a *InterviewAgent) GenerateReport(ctx context.Context, request interview.GenerateReportRequest) (interview.ReportDraft, error) {
 	var result interview.ReportDraft
-	instruction := "Synthesize only the committed interview evidence into the structured ReportDraft. Preserve uncertainty and do not invent facts."
+	instruction := "Synthesize only the committed interview evidence into the structured ReportDraft. Preserve uncertainty, do not invent facts, and do not reconstruct or expose private knowledge reference content."
 	if request.Repair != nil {
 		instruction += " This is the one domain repair attempt: fix request.repair.reason and copy evidence only from request.repair.allowedEvidence."
 	}

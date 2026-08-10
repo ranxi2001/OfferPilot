@@ -2,7 +2,9 @@ package interview
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -649,6 +651,227 @@ func TestCoveragePlannerFailureDoesNotCommitAnswer(t *testing.T) {
 	}
 }
 
+func TestKnowledgeQuestionGenerationKeepsPrivateReferenceOutOfModelContext(t *testing.T) {
+	const (
+		privateContent = "PRIVATE_CONTENT_7C91"
+		privateAnswer  = "PRIVATE_ANSWER_4F28"
+	)
+	documents := []KnowledgeDocument{{
+		ID:    "kb-colbert",
+		Title: "ColBERT MaxSim",
+		Content: "知识主题：RAG\n问题：ColBERT 的 MaxSim 如何工作？\n参考内容：" + privateContent +
+			"\n参考答案：" + privateAnswer + "\n来源：rag.md",
+	}}
+	agent := &scriptedAgent{questionFn: func(request GenerateQuestionRequest, call int) (QuestionDraft, error) {
+		encoded, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		contextText := string(encoded)
+		for _, forbidden := range []string{"参考内容", "参考答案", privateContent, privateAnswer} {
+			if strings.Contains(contextText, forbidden) {
+				t.Fatalf("question call %d received private knowledge %q: %s", call, forbidden, contextText)
+			}
+		}
+		if len(request.Anchors) != 1 || !strings.Contains(request.Anchors[0].Text, "问题：ColBERT") {
+			t.Fatalf("question call %d missing public anchor: %+v", call, request.Anchors)
+		}
+		ref := evidenceFromAnchor(request.Anchors[0])
+		if call == 1 {
+			return QuestionDraft{Text: "答案是 " + privateContent, EvidenceRefs: []EvidenceRef{ref}}, nil
+		}
+		if request.Repair == nil || len(request.Repair.AllowedEvidence) != 1 {
+			t.Fatalf("repair call is missing its public evidence whitelist: %+v", request.Repair)
+		}
+		return QuestionDraft{Text: "请解释 ColBERT MaxSim 的机制和适用边界。", EvidenceRefs: []EvidenceRef{ref}}, nil
+	}}
+	service := NewService(Dependencies{
+		Agent:     agent,
+		Retriever: staticKnowledgeRetriever(documents),
+		Store:     NewMemoryStore(),
+		Clock:     fixedClock{value: time.Now()},
+		IDs:       &sequenceIDs{},
+	})
+
+	started, err := service.Start(context.Background(), startRequest(1, FocusKnowledge, MaterialsInput{}))
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if agent.questionCalls != 2 {
+		t.Fatalf("question calls = %d, want leak rejection plus one repair", agent.questionCalls)
+	}
+	if strings.Contains(started.Profile.Coverage[0].Label, privateContent) || strings.Contains(started.Profile.Coverage[0].Label, "参考") {
+		t.Fatalf("knowledge coverage label is private: %q", started.Profile.Coverage[0].Label)
+	}
+	if strings.Contains(started.Question.Text, privateContent) || strings.Contains(started.Question.Text, privateAnswer) {
+		t.Fatalf("repaired question leaked private reference: %q", started.Question.Text)
+	}
+}
+
+func TestQuestionGenerationRepairsRecentDuplicate(t *testing.T) {
+	documents := []KnowledgeDocument{{
+		ID:      "kb-maxsim",
+		Title:   "MaxSim",
+		Content: "知识主题：RAG\n问题：MaxSim 如何工作？\n参考内容：分别编码查询和文档，再聚合 token 相似度。",
+	}}
+	agent := &scriptedAgent{
+		questionFn: func(request GenerateQuestionRequest, call int) (QuestionDraft, error) {
+			ref := evidenceFromAnchor(request.Anchors[0])
+			switch call {
+			case 1:
+				return QuestionDraft{Text: "MaxSim 如何工作？", EvidenceRefs: []EvidenceRef{ref}}, nil
+			case 2:
+				return QuestionDraft{Text: "MaxSim 如何工作", EvidenceRefs: []EvidenceRef{ref}}, nil
+			default:
+				if request.Repair == nil || !strings.Contains(request.Repair.Reason, "repeats") {
+					t.Fatalf("duplicate repair reason = %+v", request.Repair)
+				}
+				return QuestionDraft{Text: "MaxSim 在长文档检索中有哪些计算边界？", EvidenceRefs: []EvidenceRef{ref}}, nil
+			}
+		},
+		assessFn: func(request AssessAnswerRequest, _ int) (Assessment, error) {
+			return Assessment{
+				Correctness: 5, Depth: 5, Specificity: 5, Ownership: 1, Metrics: 1, Tradeoffs: 5,
+				EvidenceRefs: []EvidenceRef{evidenceFromAnchor(request.Anchors[0])},
+			}, nil
+		},
+	}
+	service := NewService(Dependencies{
+		Agent: agent, Retriever: staticKnowledgeRetriever(documents), Store: NewMemoryStore(),
+		Clock: fixedClock{value: time.Now()}, IDs: &sequenceIDs{},
+	})
+	started, err := service.Start(context.Background(), startRequest(2, FocusKnowledge, MaterialsInput{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	answered, err := service.Answer(context.Background(), answerRequest(started, "它使用 late interaction。"))
+	if err != nil {
+		t.Fatalf("Answer() error = %v", err)
+	}
+	if agent.questionCalls != 3 || answered.NextQuestion == nil || answered.NextQuestion.Text == started.Question.Text {
+		t.Fatalf("duplicate was not repaired: calls=%d next=%+v", agent.questionCalls, answered.NextQuestion)
+	}
+}
+
+func TestAssessmentCitationsAreLimitedToCurrentQuestionEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		forgeClaim bool
+	}{
+		{name: "assessment evidence"},
+		{name: "claim evidence", forgeClaim: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			documents := []KnowledgeDocument{
+				{ID: "kb-current", Title: "Current", Content: "问题：当前题？\n参考内容：当前题答案。"},
+				{ID: "kb-other", Title: "Other", Content: "问题：其他题？\n参考内容：其他题答案。"},
+			}
+			agent := groundedAgent()
+			agent.assessFn = func(request AssessAnswerRequest, call int) (Assessment, error) {
+				if len(request.Anchors) < 2 {
+					t.Fatalf("assessment did not receive private supporting context: %+v", request.Anchors)
+				}
+				current := evidenceFromAnchor(request.Anchors[0])
+				other := evidenceFromAnchor(request.Anchors[1])
+				assessment := Assessment{
+					Correctness: 3, Depth: 3, Specificity: 3, Ownership: 1, Metrics: 1, Tradeoffs: 3,
+					EvidenceRefs: []EvidenceRef{current},
+				}
+				if call == 1 {
+					if test.forgeClaim {
+						assessment.ClaimChecks = []ClaimCheck{{Claim: "引用了其他题", Verdict: ClaimSupported, EvidenceRefs: []EvidenceRef{other}}}
+					} else {
+						assessment.EvidenceRefs = []EvidenceRef{other}
+					}
+					return assessment, nil
+				}
+				if request.Repair == nil || len(request.Repair.AllowedEvidence) != 1 || request.Repair.AllowedEvidence[0].AnchorID != current.AnchorID {
+					t.Fatalf("repair evidence escaped current question: %+v", request.Repair)
+				}
+				assessment.ClaimChecks = []ClaimCheck{{Claim: "其他题材料不能证明本题", Verdict: ClaimUnverified}}
+				return assessment, nil
+			}
+			service := NewService(Dependencies{
+				Agent: agent, Retriever: staticKnowledgeRetriever(documents), Store: NewMemoryStore(),
+				Clock: fixedClock{value: time.Now()}, IDs: &sequenceIDs{},
+			})
+			started, err := service.Start(context.Background(), startRequest(1, FocusKnowledge, MaterialsInput{}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			answered, err := service.Answer(context.Background(), answerRequest(started, "候选人回答"))
+			if err != nil {
+				t.Fatalf("Answer() error = %v", err)
+			}
+			if agent.assessCalls != 2 || len(answered.Feedback.Assessment.EvidenceRefs) != 1 || answered.Feedback.Assessment.EvidenceRefs[0].AnchorID != started.Question.EvidenceRefs[0].AnchorID {
+				t.Fatalf("assessment citation was not repaired: calls=%d feedback=%+v", agent.assessCalls, answered.Feedback)
+			}
+		})
+	}
+}
+
+func TestAssessmentWithoutEvidenceFailsClosedInsteadOfInventingCitation(t *testing.T) {
+	agent := groundedAgent()
+	agent.preserveEmptyAssessmentEvidence = true
+	agent.assessFn = func(AssessAnswerRequest, int) (Assessment, error) {
+		return Assessment{Correctness: 3, Depth: 3, Specificity: 3, Ownership: 3, Metrics: 3, Tradeoffs: 3}, nil
+	}
+	store := NewMemoryStore()
+	service := newTestService(agent, store)
+	started, err := service.Start(context.Background(), startRequest(1, FocusProjects, standardMaterials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Answer(context.Background(), answerRequest(started, "候选人回答"))
+	if !IsCode(err, CodeUnavailable) || agent.assessCalls != 2 {
+		t.Fatalf("Answer() error=%v calls=%d, want failed initial+repair", err, agent.assessCalls)
+	}
+	loaded, loadErr := store.Load(context.Background(), started.InterviewID)
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if len(loaded.Answers) != 0 || loaded.Version != 1 || loaded.CurrentQuestion == nil || loaded.CurrentQuestion.ID != started.Question.ID {
+		t.Fatalf("ungrounded assessment was committed: %+v", loaded)
+	}
+}
+
+func TestPersistedKnowledgeContextIsSanitizedForPlannerAndInterviewer(t *testing.T) {
+	const secret = "PERSISTED_PRIVATE_REFERENCE_91B2"
+	profile, sources := buildProfile(MaterialsInput{}, []KnowledgeDocument{{
+		ID: "kb-old", Title: "Old", Content: "问题：旧会话公开问题？\n参考答案：" + secret,
+	}}, FocusKnowledge)
+	fullRef := profile.Coverage[0].EvidenceRefs[0]
+	profile.Coverage[0].Label = fullRef.Quote
+	session := InterviewSession{
+		Config:  InterviewConfig{Focus: FocusKnowledge},
+		Profile: profile,
+		Sources: sources,
+		Answers: []AnswerRecord{{
+			Question: Question{
+				Text: "旧题泄露 " + secret, CoveragePointID: profile.Coverage[0].ID,
+				EvidenceRefs: []EvidenceRef{fullRef}, Adaptation: QuestionAdaptation{Reason: "参考答案：" + secret},
+			},
+			Assessment: Assessment{Strengths: []string{"参考答案：" + secret}, EvidenceRefs: []EvidenceRef{fullRef}},
+			Decision:   PolicyDecision{Action: PolicyAdvance, Reason: "参考答案：" + secret},
+		}},
+	}
+	candidates := coverageCandidates(session)
+	publicProfile, publicHistory := publicQuestionContext(session)
+	encoded, err := json.Marshal(struct {
+		Candidates []CoverageCandidate
+		Profile    Profile
+		History    []AnswerRecord
+	}{candidates, publicProfile, publicHistory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{secret, "参考答案"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("persisted model context leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
 func TestMemoryStoreRequiresExactVersionAndReturnsSnapshots(t *testing.T) {
 	store := NewMemoryStore()
 	session := InterviewSession{ID: "i-1", Version: 1, Answers: make([]AnswerRecord, 0)}
@@ -675,13 +898,14 @@ func TestMemoryStoreRequiresExactVersionAndReturnsSnapshots(t *testing.T) {
 }
 
 type scriptedAgent struct {
-	mu            sync.Mutex
-	questionCalls int
-	assessCalls   int
-	reportCalls   int
-	questionFn    func(GenerateQuestionRequest, int) (QuestionDraft, error)
-	assessFn      func(AssessAnswerRequest, int) (Assessment, error)
-	reportFn      func(GenerateReportRequest, int) (ReportDraft, error)
+	mu                              sync.Mutex
+	questionCalls                   int
+	assessCalls                     int
+	reportCalls                     int
+	preserveEmptyAssessmentEvidence bool
+	questionFn                      func(GenerateQuestionRequest, int) (QuestionDraft, error)
+	assessFn                        func(AssessAnswerRequest, int) (Assessment, error)
+	reportFn                        func(GenerateReportRequest, int) (ReportDraft, error)
 }
 
 type scriptedPlanner struct {
@@ -714,11 +938,16 @@ func (a *scriptedAgent) AssessAnswer(_ context.Context, request AssessAnswerRequ
 	a.assessCalls++
 	call := a.assessCalls
 	fn := a.assessFn
+	preserveEmpty := a.preserveEmptyAssessmentEvidence
 	a.mu.Unlock()
 	if fn == nil {
 		return Assessment{}, errors.New("assessment agent unavailable")
 	}
-	return fn(request, call)
+	assessment, err := fn(request, call)
+	if err == nil && !preserveEmpty && len(assessment.EvidenceRefs) == 0 && len(request.Anchors) > 0 {
+		assessment.EvidenceRefs = []EvidenceRef{evidenceFromAnchor(request.Anchors[0])}
+	}
+	return assessment, err
 }
 
 func (a *scriptedAgent) GenerateReport(_ context.Context, request GenerateReportRequest) (ReportDraft, error) {
@@ -735,8 +964,8 @@ func (a *scriptedAgent) GenerateReport(_ context.Context, request GenerateReport
 
 func groundedAgent() *scriptedAgent {
 	return &scriptedAgent{
-		questionFn: func(request GenerateQuestionRequest, _ int) (QuestionDraft, error) {
-			return QuestionDraft{Text: "grounded question", EvidenceRefs: []EvidenceRef{evidenceFromAnchor(request.Anchors[0])}}, nil
+		questionFn: func(request GenerateQuestionRequest, call int) (QuestionDraft, error) {
+			return QuestionDraft{Text: fmt.Sprintf("grounded question %d", call), EvidenceRefs: []EvidenceRef{evidenceFromAnchor(request.Anchors[0])}}, nil
 		},
 		assessFn: func(_ AssessAnswerRequest, _ int) (Assessment, error) {
 			return Assessment{Correctness: 3, Depth: 3, Specificity: 3, Ownership: 3, Metrics: 3, Tradeoffs: 3}, nil
@@ -790,6 +1019,12 @@ func answerRequest(started StartResponse, text string) AnswerRequest {
 		Action: ActionAnswer, InterviewID: started.InterviewID, QuestionID: started.Question.ID,
 		Answer: AnswerPayload{Text: text, InputMode: InputModeText, DurationMS: 1000},
 	}
+}
+
+type staticKnowledgeRetriever []KnowledgeDocument
+
+func (r staticKnowledgeRetriever) Retrieve(context.Context, KnowledgeQuery) ([]KnowledgeDocument, error) {
+	return append([]KnowledgeDocument(nil), r...), nil
 }
 
 type fixedClock struct{ value time.Time }

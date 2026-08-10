@@ -11,6 +11,131 @@ import (
 
 var segmentBreak = regexp.MustCompile(`[\n。！？!?；;]+`)
 
+var knowledgeQuestionPrefixes = []string{"问题：", "问题:", "question:", "question："}
+
+var knowledgeReferenceMarkers = []string{
+	"参考内容：", "参考内容:",
+	"参考答案：", "参考答案:",
+	"reference content:", "reference content：",
+	"reference answer:", "reference answer：",
+}
+
+var knowledgeSourceMarkers = []string{"\n来源：", "\n来源:", "\nsource:", "\nsource："}
+
+const minPrivateReferenceFragmentRunes = 16
+
+// PublicEvidenceQuote returns the candidate-safe projection of an evidence
+// quote. Knowledge anchors remain complete internally for assessment, while
+// question generation and HTTP responses receive only the public question.
+func PublicEvidenceQuote(ref EvidenceRef) string {
+	if ref.Kind != SourceKnowledge {
+		return ref.Quote
+	}
+	return publicKnowledgeQuestion(ref.Quote)
+}
+
+// PublicGeneratedText rejects model-authored text that reproduces a private
+// knowledge reference. An empty result means callers must omit or replace it
+// with a deterministic public summary.
+func PublicGeneratedText(value string, refs []EvidenceRef) string {
+	value = strings.TrimSpace(value)
+	if value == "" || firstFoldedMarker(value, knowledgeReferenceMarkers) >= 0 {
+		return ""
+	}
+	normalizedValue := normalizeQuestionGuardText(value)
+	for _, ref := range refs {
+		if ref.Kind != SourceKnowledge {
+			continue
+		}
+		reference := knowledgeReferenceText(ref.Quote)
+		if reference == "" {
+			continue
+		}
+		normalizedReference := []rune(normalizeQuestionGuardText(reference))
+		for start := 0; start+minPrivateReferenceFragmentRunes <= len(normalizedReference); start++ {
+			fragment := string(normalizedReference[start : start+minPrivateReferenceFragmentRunes])
+			if strings.Contains(normalizedValue, fragment) {
+				return ""
+			}
+		}
+	}
+	return value
+}
+
+func publicKnowledgeQuestion(value string) string {
+	normalized := strings.ReplaceAll(value, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	for _, line := range strings.Split(normalized, "\n") {
+		line = strings.TrimSpace(line)
+		if question, ok := trimFoldedPrefix(line, knowledgeQuestionPrefixes); ok && question != "" {
+			if position := firstFoldedMarker(question, knowledgeReferenceMarkers); position >= 0 {
+				question = strings.TrimSpace(question[:position])
+			}
+			if question == "" {
+				continue
+			}
+			return "问题：" + question
+		}
+	}
+	if position := firstFoldedMarker(normalized, knowledgeReferenceMarkers); position >= 0 {
+		if public := strings.TrimSpace(normalized[:position]); public != "" {
+			return public
+		}
+	}
+	return "知识题"
+}
+
+func knowledgeQuestionLabel(value string) string {
+	public := publicKnowledgeQuestion(value)
+	if question, ok := trimFoldedPrefix(strings.TrimSpace(public), knowledgeQuestionPrefixes); ok && question != "" {
+		return question
+	}
+	return public
+}
+
+func knowledgeReferenceText(value string) string {
+	normalized := strings.ReplaceAll(value, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	position := firstFoldedMarker(normalized, knowledgeReferenceMarkers)
+	if position < 0 {
+		return ""
+	}
+	reference := normalized[position:]
+	if _, body, ok := splitFoldedPrefix(reference, knowledgeReferenceMarkers); ok {
+		reference = body
+	}
+	if end := firstFoldedMarker(reference, knowledgeSourceMarkers); end >= 0 {
+		reference = reference[:end]
+	}
+	return strings.TrimSpace(reference)
+}
+
+func trimFoldedPrefix(value string, prefixes []string) (string, bool) {
+	_, remainder, ok := splitFoldedPrefix(value, prefixes)
+	return strings.TrimSpace(remainder), ok
+}
+
+func splitFoldedPrefix(value string, prefixes []string) (string, string, bool) {
+	lower := strings.ToLower(value)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
+			return value[:len(prefix)], value[len(prefix):], true
+		}
+	}
+	return "", value, false
+}
+
+func firstFoldedMarker(value string, markers []string) int {
+	lower := strings.ToLower(value)
+	position := -1
+	for _, marker := range markers {
+		if candidate := strings.Index(lower, strings.ToLower(marker)); candidate >= 0 && (position < 0 || candidate < position) {
+			position = candidate
+		}
+	}
+	return position
+}
+
 func buildProfile(materials MaterialsInput, knowledge []KnowledgeDocument, focus Focus) (Profile, SourceIndex) {
 	index := SourceIndex{
 		Documents: make(map[string]SourceDocument),
@@ -276,7 +401,7 @@ func normalizeEvidenceText(value string) string {
 }
 
 func pointFromAnchor(id string, anchor SourceAnchor) ProfilePoint {
-	return ProfilePoint{ID: id, Label: concise(anchor.Text, 120), EvidenceRefs: []EvidenceRef{evidenceFromAnchor(anchor)}}
+	return ProfilePoint{ID: id, Label: publicAnchorLabel(anchor), EvidenceRefs: []EvidenceRef{evidenceFromAnchor(anchor)}}
 }
 
 func coverageFromAnchors(prefix string, area Focus, anchors []SourceAnchor, limit int) []CoveragePoint {
@@ -288,11 +413,18 @@ func coverageFromAnchors(prefix string, area Focus, anchors []SourceAnchor, limi
 		points = append(points, CoveragePoint{
 			ID:           fmt.Sprintf("%s-%03d", prefix, i+1),
 			Area:         area,
-			Label:        concise(anchor.Text, 120),
+			Label:        publicAnchorLabel(anchor),
 			EvidenceRefs: []EvidenceRef{evidenceFromAnchor(anchor)},
 		})
 	}
 	return points
+}
+
+func publicAnchorLabel(anchor SourceAnchor) string {
+	if anchor.Kind == SourceKnowledge {
+		return concise(knowledgeQuestionLabel(anchor.Text), 120)
+	}
+	return concise(anchor.Text, 120)
 }
 
 func attachKnowledgeContext(points []CoveragePoint, anchors []SourceAnchor, limit int) []CoveragePoint {

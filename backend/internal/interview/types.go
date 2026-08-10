@@ -153,8 +153,10 @@ type AnswerRequest struct {
 }
 
 type AnswerFeedback struct {
-	Assessment Assessment `json:"assessment"`
+	Assessment Assessment `json:"assessment,omitempty,omitzero"`
 	Summary    string     `json:"summary"`
+	Focus      Focus      `json:"focus"`
+	Deferred   bool       `json:"deferred,omitempty"`
 }
 
 type AnswerResponse struct {

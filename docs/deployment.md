@@ -87,7 +87,7 @@ A healthy, fully configured API reports the dynamically parsed knowledge count:
   "harness": "ready",
   "modelConfigured": true,
   "speechConfigured": true,
-  "knowledgeEntries": 403
+  "knowledgeEntries": 404
 }
 ```
 

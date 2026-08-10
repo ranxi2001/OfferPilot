@@ -1037,6 +1037,26 @@ flowchart TB
 
 ---
 
+### Q：混合检索中 ColBERT late interaction 应该放在哪一层？如何在 800ms P95 约束下评估它？
+
+> 来源：OfferPilot RAG 检索工程题补充
+
+**新手答**：“BM25 和向量召回后用 ColBERT 重排，效果更准。”
+
+**高手答**：
+
+BM25 与 dense retrieval 应先并行做候选召回：BM25 擅长专有名词、错误码和罕见词的精确词项匹配，dense retrieval 擅长同义改写和词面不重合的语义匹配。两路各取 Top-100~150，经 RRF 或校准后的加权融合去重，再让 ColBERT 只重排 Top-40~80。ColBERT 离线保存 document token embedding，在线编码 query token，以每个 query token 对文档 token 的 MaxSim 聚合完成 late interaction；它比单向量点积保留更多局部匹配信息，但计算、显存和索引成本也更高。
+
+800ms P95 必须拆成端到端阶段预算并留出抖动余量，不能把全部预算给重排。候选规模要通过压测和质量曲线决定，并按 query 类型与剩余 deadline 动态调整：短实体/错误码查询可缩小 Top-K 或跳过 ColBERT，复杂语义查询才启用更大的重排集；GPU 排队、超时或熔断时降级到融合结果，且文档 token embedding 应预计算、压缩和缓存。
+
+离线评测要同时报告召回上限、最终排序质量和延迟成本。召回阶段看 Recall@K/oracle recall，重排后看 nDCG@10、MRR、Success@K，并记录各阶段及端到端 P50/P95/P99、超时率和单位查询成本。至少做 BM25-only、dense-only、hybrid、hybrid+ColBERT 消融，扫描融合候选数和重排 Top-K，只有最终质量提升具备置信区间且 P95 不超过预算才接受。评测集应按时间切分，并单独观察实体、语义、多语言、长尾和新文档 slice。
+
+典型失效边界包括：领域新词超出 embedding 分布、表格/代码/数字范围被切块破坏、超长文档的局部 MaxSim 放大噪声、近重复文档淹没结果、强时效或权限过滤不一致，以及需要多跳关系推理的问题。对收益覆盖不了延迟成本的查询 slice，应关闭或缩小 ColBERT，而不是全量强开。
+
+**差距在哪**：新手只会画组件顺序；高手会把每层解决的问题、候选规模、deadline 降级、质量-延迟联合验收和失效分布一起讲清楚。
+
+---
+
 ### Q：Rerank 后一般返回几个块？TopK 截断策略怎么设计？
 
 > 来源：快手 AI Agent 开发一面 【字节二面追问：Re-rank 的作用 + 为什么有了向量相似度还需要它】【淘天Agent开发追问：低分阈值提前过滤策略】

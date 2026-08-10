@@ -57,6 +57,21 @@ export function ExecutionTimeline({ runs }: { runs: InterviewExecutionRun[] }) {
                       )}
                     </div>
                     {step.detail && <p className="mt-0.5 text-[11px] leading-5 text-slate-500">{step.detail}</p>}
+                    {step.transitions && step.transitions.length > 1 && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[9px] text-slate-400">
+                        {step.transitions.map((transition, transitionIndex) => (
+                          <span key={`${transition.status}-${transition.at}`} className="flex items-center gap-1">
+                            {transitionIndex > 0 && <span className="text-slate-300">/</span>}
+                            <span className={transitionClass(transition.status)}>{transitionLabel(transition.status)}</span>
+                            <span className="tabular-nums">
+                              {transition.durationMs != null && transition.durationMs > 0
+                                ? formatDuration(transition.durationMs)
+                                : formatTime(transition.at)}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="pl-2 text-right text-[10px] tabular-nums text-slate-400">
                     {step.durationMs != null ? formatDuration(step.durationMs) : formatTime(step.at)}
@@ -91,6 +106,19 @@ function runStatusLabel(status: InterviewExecutionRun['status']) {
 
 function runStatusClass(status: InterviewExecutionRun['status']) {
   return { running: 'text-sky-700', completed: 'text-emerald-700', failed: 'text-red-700' }[status];
+}
+
+function transitionLabel(status: ExecutionTraceStatus) {
+  return { queued: '排队', running: '开始', completed: '完成', failed: '失败' }[status];
+}
+
+function transitionClass(status: ExecutionTraceStatus) {
+  return {
+    queued: 'text-slate-500',
+    running: 'text-sky-600',
+    completed: 'text-emerald-600',
+    failed: 'text-red-600',
+  }[status];
 }
 
 function agentLabel(agent: string) {
