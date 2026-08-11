@@ -274,6 +274,7 @@ func extractCandidate(anchors []SourceAnchor, result CandidateProfile) Candidate
 	seenMetrics := make(map[string]struct{})
 	for _, anchor := range anchors {
 		value := cleanValue(anchor.Text)
+		declaredProject := false
 		if detected, ok := headingSection(value); ok {
 			currentSection = detected
 			if detected != sectionProjects {
@@ -292,7 +293,7 @@ func extractCandidate(anchors []SourceAnchor, result CandidateProfile) Candidate
 			continue
 		}
 
-		if name, ok := projectName(value, anchor.Text, currentSection); ok {
+		if name, body, ok := projectName(value, anchor.Text, currentSection); ok {
 			projectID := fmt.Sprintf("candidate-project-%03d", len(result.Projects)+1)
 			result.Projects = append(result.Projects, ProjectProfile{
 				ID:               projectID,
@@ -301,10 +302,14 @@ func extractCandidate(anchors []SourceAnchor, result CandidateProfile) Candidate
 				Technologies: make([]Fact, 0), Highlights: make([]Fact, 0),
 			})
 			currentProject = len(result.Projects) - 1
-			continue
+			declaredProject = true
+			value = body
+			if value == "" {
+				continue
+			}
 		}
 
-		if result.Headline == nil && currentSection == sectionUnknown && !looksLikeBullet(anchor.Text) {
+		if !declaredProject && result.Headline == nil && currentSection == sectionUnknown && !looksLikeBullet(anchor.Text) {
 			fact := factFromAnchor("candidate-headline", value, anchor)
 			result.Headline = &fact
 			continue
@@ -422,21 +427,39 @@ func inlineSection(value string) (section, string, bool) {
 	return sectionUnknown, value, false
 }
 
-func projectName(value, raw string, currentSection section) (string, bool) {
+func projectName(value, raw string, currentSection section) (string, string, bool) {
 	if name, ok := prefixedValue(value, "项目名称", "项目", "project"); ok {
-		return trimProjectDate(name), name != ""
+		return trimProjectDate(name), "", name != ""
+	}
+	trimmed := strings.TrimSpace(value)
+	lower := strings.ToLower(trimmed)
+	for _, prefix := range []string{"项目 ", "project "} {
+		if !strings.HasPrefix(lower, prefix) {
+			continue
+		}
+		remainder := strings.TrimSpace(trimmed[len(prefix):])
+		name, body := remainder, ""
+		if separator := strings.Index(remainder, "："); separator >= 0 {
+			name = strings.TrimSpace(remainder[:separator])
+			body = strings.TrimSpace(remainder[separator+len("："):])
+		} else if separator := strings.Index(remainder, ":"); separator >= 0 {
+			name = strings.TrimSpace(remainder[:separator])
+			body = strings.TrimSpace(remainder[separator+1:])
+		}
+		name = trimProjectDate(name)
+		return name, body, name != ""
 	}
 	if currentSection != sectionProjects || looksLikeBullet(raw) {
-		return "", false
+		return "", "", false
 	}
 	if utf8.RuneCountInString(value) > 100 || containsAny(strings.ToLower(value), "负责", "主导", "实现", "优化", "built", "designed", "implemented") {
-		return "", false
+		return "", "", false
 	}
 	if strings.HasPrefix(strings.TrimSpace(raw), "#") || strings.Contains(value, "|") || strings.Contains(value, "｜") {
 		name := trimProjectDate(value)
-		return name, name != ""
+		return name, "", name != ""
 	}
-	return value, true
+	return value, "", true
 }
 
 func trimProjectDate(value string) string {

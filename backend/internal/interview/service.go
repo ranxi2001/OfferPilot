@@ -14,12 +14,13 @@ import (
 const maxKnowledgeEvidencePerQuestion = 5
 
 type Service struct {
-	agent     Agent
-	planner   CoveragePlanner
-	retriever KnowledgeRetriever
-	store     Store
-	clock     Clock
-	ids       IDGenerator
+	agent          Agent
+	planner        CoveragePlanner
+	retriever      KnowledgeRetriever
+	profileBuilder ProfileBuilder
+	store          Store
+	clock          Clock
+	ids            IDGenerator
 }
 
 func NewService(dependencies Dependencies) *Service {
@@ -39,13 +40,18 @@ func NewService(dependencies Dependencies) *Service {
 	if planner == nil {
 		planner, _ = dependencies.Agent.(CoveragePlanner)
 	}
+	profileBuilder := dependencies.ProfileBuilder
+	if profileBuilder == nil {
+		profileBuilder = newDefaultProfileBuilder()
+	}
 	return &Service{
-		agent:     dependencies.Agent,
-		planner:   planner,
-		retriever: dependencies.Retriever,
-		store:     store,
-		clock:     clock,
-		ids:       ids,
+		agent:          dependencies.Agent,
+		planner:        planner,
+		retriever:      dependencies.Retriever,
+		profileBuilder: profileBuilder,
+		store:          store,
+		clock:          clock,
+		ids:            ids,
 	}
 }
 
@@ -59,7 +65,11 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartRespons
 	validationSpan.End(nil, "")
 
 	materialSpan := executiontrace.Start(ctx, "materials", "Prepare interview evidence", "")
-	profile, sources := buildProfile(request.Materials, nil, request.Config.Focus)
+	profile, sources, profileErr := s.profileBuilder.Build(ctx, request.Materials, nil, request.Config.Focus)
+	if profileErr != nil {
+		materialSpan.End(profileErr, "")
+		return StartResponse{}, unavailable("profile extraction is temporarily unavailable", profileErr)
+	}
 	if len(profile.Coverage) == 0 && s.retriever != nil {
 		seed := s.retrieveKnowledge(ctx, KnowledgeQuery{
 			Model:  request.Model,
@@ -67,7 +77,11 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartRespons
 			JD:     materialText(request.Materials.JD),
 			Resume: materialText(request.Materials.Resume),
 		}, "Seed knowledge-only interview")
-		profile, sources = buildProfile(request.Materials, seed, request.Config.Focus)
+		profile, sources, profileErr = s.profileBuilder.Build(ctx, request.Materials, seed, request.Config.Focus)
+		if profileErr != nil {
+			materialSpan.End(profileErr, "")
+			return StartResponse{}, unavailable("profile extraction is temporarily unavailable", profileErr)
+		}
 	}
 	materialSpan.End(nil, fmt.Sprintf("coveragePoints=%d", len(profile.Coverage)))
 	if len(profile.Coverage) == 0 {

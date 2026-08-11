@@ -459,6 +459,13 @@ type KnowledgeRetriever interface {
 	Retrieve(context.Context, KnowledgeQuery) ([]KnowledgeDocument, error)
 }
 
+// ProfileBuilder converts uploaded materials and optional seed knowledge into
+// the canonical interview profile and source index. Implementations must keep
+// every profile fact grounded in the returned index.
+type ProfileBuilder interface {
+	Build(context.Context, MaterialsInput, []KnowledgeDocument, Focus) (Profile, SourceIndex, error)
+}
+
 type Store interface {
 	Create(context.Context, InterviewSession) error
 	Load(context.Context, string) (InterviewSession, error)
@@ -474,10 +481,11 @@ type IDGenerator interface {
 }
 
 type Dependencies struct {
-	Agent     Agent
-	Planner   CoveragePlanner
-	Retriever KnowledgeRetriever
-	Store     Store
-	Clock     Clock
-	IDs       IDGenerator
+	Agent          Agent
+	Planner        CoveragePlanner
+	Retriever      KnowledgeRetriever
+	ProfileBuilder ProfileBuilder
+	Store          Store
+	Clock          Clock
+	IDs            IDGenerator
 }

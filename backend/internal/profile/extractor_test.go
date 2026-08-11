@@ -131,6 +131,25 @@ func TestDeterministicExtractorHandlesInlineSectionsWithoutSubstringSkills(t *te
 	}
 }
 
+func TestDeterministicExtractorSplitsInlineProjectNameAndResponsibility(t *testing.T) {
+	result, err := NewDeterministicExtractor().Extract(context.Background(), Input{
+		Resume: DocumentInput{Text: "项目 OfferPilot：我负责 Go Agent Harness 的架构设计与实现。"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Candidate.Projects) != 1 || result.Candidate.Projects[0].Name.Value != "OfferPilot" {
+		t.Fatalf("projects = %+v", result.Candidate.Projects)
+	}
+	project := result.Candidate.Projects[0]
+	if len(project.Responsibilities) != 1 || project.Responsibilities[0].Value != "我负责 Go Agent Harness 的架构设计与实现。" {
+		t.Fatalf("inline project responsibilities = %+v", project.Responsibilities)
+	}
+	if err := Validate(mustBuildAgentRequest(t, Input{Resume: DocumentInput{Text: "项目 OfferPilot：我负责 Go Agent Harness 的架构设计与实现。"}}), result); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAgentExtractorRejectsUngroundedAndForgedFacts(t *testing.T) {
 	input := Input{
 		JD:     DocumentInput{Text: "职位：Go 工程师\n任职要求\n- 必须熟悉 Go"},
@@ -240,6 +259,15 @@ func (a agentStub) ProposeProfile(_ context.Context, request AgentRequest) (Prof
 
 func evidence(anchor SourceAnchor) EvidenceRef {
 	return EvidenceRef{SourceID: anchor.SourceID, Kind: anchor.Kind, AnchorID: anchor.ID, Locator: anchor.Locator, Quote: anchor.Text}
+}
+
+func mustBuildAgentRequest(t *testing.T, input Input) AgentRequest {
+	t.Helper()
+	request, err := BuildAgentRequest(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request
 }
 
 func hasFactValue(facts []Fact, value string) bool {
