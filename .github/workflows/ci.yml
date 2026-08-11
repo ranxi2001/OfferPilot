@@ -57,6 +57,10 @@ jobs:
         working-directory: backend
         run: go test ./...
 
+      - name: Run offline eval gate
+        working-directory: backend
+        run: go run ./cmd/offerpilot-eval -pretty=false
+
       - name: Vet Go backend
         working-directory: backend
         run: go vet ./...

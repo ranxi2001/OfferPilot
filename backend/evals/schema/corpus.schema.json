@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://offerpilot.local/schemas/eval-corpus-v1.json",
+  "title": "OfferPilot offline interview evaluation corpus",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "corpusVersion",
+    "description",
+    "requiredCoverage",
+    "thresholds",
+    "cases"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "corpusVersion": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "requiredCoverage": { "$ref": "#/$defs/coverage" },
+    "thresholds": { "$ref": "#/$defs/thresholds" },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/case" }
+    }
+  },
+  "$defs": {
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modes", "seniorities"],
+      "properties": {
+        "modes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["knowledge", "projects", "mixed"] }
+        },
+        "seniorities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["junior", "mid", "senior"] }
+        }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxDuplicateQuestionRate",
+        "minEvidenceValidityRate",
+        "minModeCoverageRate",
+        "minSeniorityCoverageRate",
+        "minModeSeniorityCoverageRate",
+        "minModeConformanceRate",
+        "maxPrivacyMarkerHits"
+      ],
+      "properties": {
+        "maxDuplicateQuestionRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minEvidenceValidityRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minModeCoverageRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minSeniorityCoverageRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minModeSeniorityCoverageRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minModeConformanceRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "maxPrivacyMarkerHits": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "mode",
+        "seniority",
+        "evidenceCatalog",
+        "privateMarkers",
+        "questions",
+        "publicTexts"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["knowledge", "projects", "mixed"] },
+        "seniority": { "enum": ["junior", "mid", "senior"] },
+        "evidenceCatalog": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/evidence" }
+        },
+        "privateMarkers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/question" }
+        },
+        "publicTexts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/publicText" }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["jd", "resume", "knowledge"] },
+        "label": { "type": "string", "minLength": 1 }
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text", "kind", "difficulty", "evidenceRefIds"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["knowledge", "project", "behavioral", "follow_up", "prerequisite"] },
+        "difficulty": { "enum": ["easy", "medium", "hard"] },
+        "evidenceRefIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "publicText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

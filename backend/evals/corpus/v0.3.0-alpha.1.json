@@ -1,0 +1,600 @@
+{
+  "schemaVersion": "1.0.0",
+  "corpusVersion": "v0.3.0-alpha.1",
+  "description": "Sanitized synthetic outputs for the deterministic offline interview quality gate.",
+  "requiredCoverage": {
+    "modes": ["knowledge", "projects", "mixed"],
+    "seniorities": ["junior", "mid", "senior"]
+  },
+  "thresholds": {
+    "maxDuplicateQuestionRate": 0,
+    "minEvidenceValidityRate": 1,
+    "minModeCoverageRate": 1,
+    "minSeniorityCoverageRate": 1,
+    "minModeSeniorityCoverageRate": 1,
+    "minModeConformanceRate": 1,
+    "maxPrivacyMarkerHits": 0
+  },
+  "cases": [
+    {
+      "id": "knowledge-junior",
+      "title": "Junior backend fundamentals",
+      "mode": "knowledge",
+      "seniority": "junior",
+      "evidenceCatalog": [
+        { "id": "k-jr-http", "kind": "knowledge", "label": "HTTP request lifecycle" },
+        { "id": "k-jr-sql", "kind": "knowledge", "label": "SQL index fundamentals" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_KNOWLEDGE_JUNIOR"],
+      "questions": [
+        { "id": "q-kj-1", "text": "What happens between an HTTP client sending a request and a Go handler receiving it?", "kind": "knowledge", "difficulty": "easy", "evidenceRefIds": ["k-jr-http"] },
+        { "id": "q-kj-2", "text": "Why can a database index speed up reads while making writes more expensive?", "kind": "knowledge", "difficulty": "easy", "evidenceRefIds": ["k-jr-sql"] },
+        { "id": "q-kj-3", "text": "Which measurements would you collect before deciding that an endpoint needs caching?", "kind": "follow_up", "difficulty": "medium", "evidenceRefIds": ["k-jr-http"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-kj", "text": "The interview checks foundational request handling and data access reasoning." }
+      ]
+    },
+    {
+      "id": "knowledge-mid",
+      "title": "Mid-level reliability knowledge",
+      "mode": "knowledge",
+      "seniority": "mid",
+      "evidenceCatalog": [
+        { "id": "k-mid-idempotency", "kind": "knowledge", "label": "Idempotent command processing" },
+        { "id": "k-mid-cache", "kind": "knowledge", "label": "Cache consistency" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_KNOWLEDGE_MID"],
+      "questions": [
+        { "id": "q-km-1", "text": "How would you make a payment command idempotent across client retries?", "kind": "knowledge", "difficulty": "medium", "evidenceRefIds": ["k-mid-idempotency"] },
+        { "id": "q-km-2", "text": "Compare cache-aside and write-through strategies when stale reads are costly.", "kind": "knowledge", "difficulty": "medium", "evidenceRefIds": ["k-mid-cache"] },
+        { "id": "q-km-3", "text": "What failure would still remain after adding an idempotency key, and how would you observe it?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-mid-idempotency"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-km", "text": "The interview focuses on retry safety and consistency tradeoffs." }
+      ]
+    },
+    {
+      "id": "knowledge-senior",
+      "title": "Senior distributed systems knowledge",
+      "mode": "knowledge",
+      "seniority": "senior",
+      "evidenceCatalog": [
+        { "id": "k-sr-consensus", "kind": "knowledge", "label": "Consensus and quorum behavior" },
+        { "id": "k-sr-backpressure", "kind": "knowledge", "label": "Backpressure and overload control" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_KNOWLEDGE_SENIOR"],
+      "questions": [
+        { "id": "q-ks-1", "text": "Under which network failures can a quorum write remain available, and what consistency does it provide?", "kind": "knowledge", "difficulty": "hard", "evidenceRefIds": ["k-sr-consensus"] },
+        { "id": "q-ks-2", "text": "Design an overload-control policy that protects dependencies without hiding sustained capacity deficits.", "kind": "knowledge", "difficulty": "hard", "evidenceRefIds": ["k-sr-backpressure"] },
+        { "id": "q-ks-3", "text": "How would you prove that retries are amplifying an incident rather than helping recovery?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-sr-backpressure"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-ks", "text": "The interview probes distributed failure reasoning and operational safeguards." }
+      ]
+    },
+    {
+      "id": "projects-junior",
+      "title": "Junior project walkthrough",
+      "mode": "projects",
+      "seniority": "junior",
+      "evidenceCatalog": [
+        { "id": "r-jr-api", "kind": "resume", "label": "Synthetic task API project" },
+        { "id": "jd-jr-tests", "kind": "jd", "label": "Role requires automated testing" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_PROJECTS_JUNIOR"],
+      "questions": [
+        { "id": "q-pj-1", "text": "Walk through one endpoint you owned in the task API and explain your exact contribution.", "kind": "project", "difficulty": "easy", "evidenceRefIds": ["r-jr-api"] },
+        { "id": "q-pj-2", "text": "Which test caught the most useful defect in that project, and why was it valuable?", "kind": "behavioral", "difficulty": "medium", "evidenceRefIds": ["r-jr-api", "jd-jr-tests"] },
+        { "id": "q-pj-3", "text": "What evidence would distinguish your work from the rest of the team's implementation?", "kind": "follow_up", "difficulty": "medium", "evidenceRefIds": ["r-jr-api"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-pj", "text": "The interview verifies ownership and testing in a small backend project." }
+      ]
+    },
+    {
+      "id": "projects-mid",
+      "title": "Mid-level service migration",
+      "mode": "projects",
+      "seniority": "mid",
+      "evidenceCatalog": [
+        { "id": "r-mid-migration", "kind": "resume", "label": "Synthetic service migration project" },
+        { "id": "jd-mid-observe", "kind": "jd", "label": "Role requires observability ownership" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_PROJECTS_MID"],
+      "questions": [
+        { "id": "q-pm-1", "text": "Describe the migration boundary you chose and the constraint that most shaped it.", "kind": "project", "difficulty": "medium", "evidenceRefIds": ["r-mid-migration"] },
+        { "id": "q-pm-2", "text": "Which production signal determined whether you continued or rolled back the migration?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-mid-migration", "jd-mid-observe"] },
+        { "id": "q-pm-3", "text": "Tell me about a migration assumption that proved wrong and how you corrected it.", "kind": "behavioral", "difficulty": "hard", "evidenceRefIds": ["r-mid-migration"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-pm", "text": "The interview checks migration decisions, rollback evidence, and learning." }
+      ]
+    },
+    {
+      "id": "projects-senior",
+      "title": "Senior platform leadership",
+      "mode": "projects",
+      "seniority": "senior",
+      "evidenceCatalog": [
+        { "id": "r-sr-platform", "kind": "resume", "label": "Synthetic multi-team platform program" },
+        { "id": "jd-sr-strategy", "kind": "jd", "label": "Role requires technical strategy" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_PROJECTS_SENIOR"],
+      "questions": [
+        { "id": "q-ps-1", "text": "Which platform decision created the largest organizational tradeoff, and who disagreed with it?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-sr-platform", "jd-sr-strategy"] },
+        { "id": "q-ps-2", "text": "How did you attribute business or engineering outcomes to the platform rather than adjacent initiatives?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-sr-platform"] },
+        { "id": "q-ps-3", "text": "Describe a point where you changed strategy after receiving evidence from another team.", "kind": "behavioral", "difficulty": "hard", "evidenceRefIds": ["r-sr-platform", "jd-sr-strategy"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-ps", "text": "The interview tests strategic ownership, attribution, and cross-team judgment." }
+      ]
+    },
+    {
+      "id": "mixed-junior",
+      "title": "Junior full-stack mixed interview",
+      "mode": "mixed",
+      "seniority": "junior",
+      "evidenceCatalog": [
+        { "id": "r-mj-dashboard", "kind": "resume", "label": "Synthetic dashboard project" },
+        { "id": "k-mj-browser", "kind": "knowledge", "label": "Browser rendering fundamentals" },
+        { "id": "jd-mj-access", "kind": "jd", "label": "Role requires accessible interfaces" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_MIXED_JUNIOR"],
+      "questions": [
+        { "id": "q-mj-1", "text": "Explain the browser work that occurs after your dashboard receives JSON data.", "kind": "knowledge", "difficulty": "easy", "evidenceRefIds": ["k-mj-browser"] },
+        { "id": "q-mj-2", "text": "Show how you made one interactive dashboard control usable without a mouse.", "kind": "project", "difficulty": "medium", "evidenceRefIds": ["r-mj-dashboard", "jd-mj-access"] },
+        { "id": "q-mj-3", "text": "What would you measure to confirm that the accessibility change helped users?", "kind": "follow_up", "difficulty": "medium", "evidenceRefIds": ["jd-mj-access"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-mj", "text": "The interview connects browser fundamentals to accessible project delivery." }
+      ]
+    },
+    {
+      "id": "mixed-mid",
+      "title": "Mid-level data service mixed interview",
+      "mode": "mixed",
+      "seniority": "mid",
+      "evidenceCatalog": [
+        { "id": "r-mm-pipeline", "kind": "resume", "label": "Synthetic event pipeline project" },
+        { "id": "k-mm-delivery", "kind": "knowledge", "label": "Event delivery semantics" },
+        { "id": "jd-mm-slo", "kind": "jd", "label": "Role requires SLO ownership" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_MIXED_MID"],
+      "questions": [
+        { "id": "q-mm-1", "text": "Contrast at-most-once and at-least-once delivery for a consumer that updates balances.", "kind": "knowledge", "difficulty": "medium", "evidenceRefIds": ["k-mm-delivery"] },
+        { "id": "q-mm-2", "text": "Where did your event pipeline lose or duplicate work, and what change reduced the risk?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-mm-pipeline"] },
+        { "id": "q-mm-3", "text": "Which SLO would reveal that the delivery guarantee is failing users before throughput drops?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["jd-mm-slo", "k-mm-delivery"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-mm", "text": "The interview ties delivery guarantees to a concrete pipeline and its SLOs." }
+      ]
+    },
+    {
+      "id": "mixed-senior",
+      "title": "Senior AI platform mixed interview",
+      "mode": "mixed",
+      "seniority": "senior",
+      "evidenceCatalog": [
+        { "id": "r-ms-agent", "kind": "resume", "label": "Synthetic agent platform project" },
+        { "id": "k-ms-eval", "kind": "knowledge", "label": "Model evaluation methodology" },
+        { "id": "jd-ms-governance", "kind": "jd", "label": "Role requires AI governance" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_MIXED_SENIOR"],
+      "questions": [
+        { "id": "q-ms-1", "text": "Design an evaluation that separates retrieval quality from generation quality in an agent system.", "kind": "knowledge", "difficulty": "hard", "evidenceRefIds": ["k-ms-eval"] },
+        { "id": "q-ms-2", "text": "Which decision in your agent platform was reversed by evaluation evidence, and what was the cost?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-ms-agent", "jd-ms-governance"] },
+        { "id": "q-ms-3", "text": "How would you audit a model change when offline scores improve but user complaints increase?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-ms-eval", "jd-ms-governance"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-ms", "text": "The interview connects evaluation design, platform decisions, and governance." }
+      ]
+    },
+    {
+      "id": "knowledge-junior-debugging",
+      "title": "Junior request debugging fundamentals",
+      "mode": "knowledge",
+      "seniority": "junior",
+      "evidenceCatalog": [
+        { "id": "k-jd-dns", "kind": "knowledge", "label": "DNS resolution and connection setup" },
+        { "id": "k-jd-errors", "kind": "knowledge", "label": "Structured error handling" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_KNOWLEDGE_JUNIOR_DEBUGGING"],
+      "questions": [
+        { "id": "q-kjd-1", "text": "Which checks would you perform when a hostname resolves locally but fails inside a container?", "kind": "knowledge", "difficulty": "easy", "evidenceRefIds": ["k-jd-dns"] },
+        { "id": "q-kjd-2", "text": "How should a Go service wrap an error while preserving information needed by its caller?", "kind": "knowledge", "difficulty": "easy", "evidenceRefIds": ["k-jd-errors"] },
+        { "id": "q-kjd-3", "text": "What observation would help you separate name resolution failure from connection refusal?", "kind": "follow_up", "difficulty": "medium", "evidenceRefIds": ["k-jd-dns"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-kjd", "text": "The interview checks systematic diagnosis and useful error propagation." }
+      ]
+    },
+    {
+      "id": "knowledge-junior-concurrency",
+      "title": "Junior Go concurrency fundamentals",
+      "mode": "knowledge",
+      "seniority": "junior",
+      "evidenceCatalog": [
+        { "id": "k-jc-channels", "kind": "knowledge", "label": "Go channels and cancellation" },
+        { "id": "k-jc-races", "kind": "knowledge", "label": "Shared state and race detection" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_KNOWLEDGE_JUNIOR_CONCURRENCY"],
+      "questions": [
+        { "id": "q-kjc-1", "text": "When should a goroutine stop reading from a channel, and who should close that channel?", "kind": "knowledge", "difficulty": "easy", "evidenceRefIds": ["k-jc-channels"] },
+        { "id": "q-kjc-2", "text": "Why can two individually safe map operations still form a data race in a larger workflow?", "kind": "knowledge", "difficulty": "medium", "evidenceRefIds": ["k-jc-races"] },
+        { "id": "q-kjc-3", "text": "How would context cancellation change a worker loop that can block while sending results?", "kind": "follow_up", "difficulty": "medium", "evidenceRefIds": ["k-jc-channels"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-kjc", "text": "The interview examines goroutine lifetime, channel ownership, and shared-state safety." }
+      ]
+    },
+    {
+      "id": "knowledge-junior-data",
+      "title": "Junior relational data fundamentals",
+      "mode": "knowledge",
+      "seniority": "junior",
+      "evidenceCatalog": [
+        { "id": "k-jdata-tx", "kind": "knowledge", "label": "Database transactions and constraints" },
+        { "id": "k-jdata-page", "kind": "knowledge", "label": "Stable pagination" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_KNOWLEDGE_JUNIOR_DATA"],
+      "questions": [
+        { "id": "q-kjdata-1", "text": "What inconsistency can occur if an order row and its inventory update use separate transactions?", "kind": "knowledge", "difficulty": "easy", "evidenceRefIds": ["k-jdata-tx"] },
+        { "id": "q-kjdata-2", "text": "Why does offset pagination become unstable when new records are inserted during browsing?", "kind": "knowledge", "difficulty": "medium", "evidenceRefIds": ["k-jdata-page"] },
+        { "id": "q-kjdata-3", "text": "Which database constraint would you add before relying on application code to reject duplicate usernames?", "kind": "follow_up", "difficulty": "medium", "evidenceRefIds": ["k-jdata-tx"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-kjdata", "text": "The interview covers transactional integrity, constraints, and predictable pagination." }
+      ]
+    },
+    {
+      "id": "knowledge-mid-messaging",
+      "title": "Mid-level messaging reliability",
+      "mode": "knowledge",
+      "seniority": "mid",
+      "evidenceCatalog": [
+        { "id": "k-kmm-consumers", "kind": "knowledge", "label": "Consumer groups and rebalancing" },
+        { "id": "k-kmm-dlq", "kind": "knowledge", "label": "Retry and dead-letter policies" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_KNOWLEDGE_MID_MESSAGING"],
+      "questions": [
+        { "id": "q-kmm-1", "text": "How can a consumer-group rebalance cause duplicate processing even when offsets are committed regularly?", "kind": "knowledge", "difficulty": "medium", "evidenceRefIds": ["k-kmm-consumers"] },
+        { "id": "q-kmm-2", "text": "Design a retry schedule that prevents a poison message from blocking healthy traffic indefinitely.", "kind": "knowledge", "difficulty": "hard", "evidenceRefIds": ["k-kmm-dlq"] },
+        { "id": "q-kmm-3", "text": "Which metric would reveal that dead-letter volume is hiding a systemic producer defect?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-kmm-dlq"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-kmm", "text": "The interview tests message redelivery, retry isolation, and failure visibility." }
+      ]
+    },
+    {
+      "id": "knowledge-mid-security",
+      "title": "Mid-level application security",
+      "mode": "knowledge",
+      "seniority": "mid",
+      "evidenceCatalog": [
+        { "id": "k-kms-auth", "kind": "knowledge", "label": "OAuth authorization flows" },
+        { "id": "k-kms-web", "kind": "knowledge", "label": "Browser request forgery defenses" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_KNOWLEDGE_MID_SECURITY"],
+      "questions": [
+        { "id": "q-kms-1", "text": "What security property does PKCE add to an authorization-code flow for a public client?", "kind": "knowledge", "difficulty": "medium", "evidenceRefIds": ["k-kms-auth"] },
+        { "id": "q-kms-2", "text": "Compare SameSite cookies and anti-forgery tokens for protecting a state-changing endpoint.", "kind": "knowledge", "difficulty": "medium", "evidenceRefIds": ["k-kms-web"] },
+        { "id": "q-kms-3", "text": "How would you rotate a leaked signing key without immediately invalidating every active session?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-kms-auth"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-kms", "text": "The interview evaluates authentication flows, request forgery controls, and key rotation." }
+      ]
+    },
+    {
+      "id": "knowledge-senior-architecture",
+      "title": "Senior multi-region architecture",
+      "mode": "knowledge",
+      "seniority": "senior",
+      "evidenceCatalog": [
+        { "id": "k-ksa-regions", "kind": "knowledge", "label": "Multi-region data architecture" },
+        { "id": "k-ksa-recovery", "kind": "knowledge", "label": "Disaster recovery objectives" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_KNOWLEDGE_SENIOR_ARCHITECTURE"],
+      "questions": [
+        { "id": "q-ksa-1", "text": "Design a multi-region write path that respects data residency while surviving a regional outage.", "kind": "knowledge", "difficulty": "hard", "evidenceRefIds": ["k-ksa-regions"] },
+        { "id": "q-ksa-2", "text": "How do recovery time and recovery point objectives constrain replication and backup choices?", "kind": "knowledge", "difficulty": "hard", "evidenceRefIds": ["k-ksa-recovery"] },
+        { "id": "q-ksa-3", "text": "Which failure drill would expose a hidden dependency on the region declared unavailable?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-ksa-regions", "k-ksa-recovery"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-ksa", "text": "The interview probes regional resilience, residency constraints, and recovery evidence." }
+      ]
+    },
+    {
+      "id": "knowledge-senior-performance",
+      "title": "Senior capacity and tail latency",
+      "mode": "knowledge",
+      "seniority": "senior",
+      "evidenceCatalog": [
+        { "id": "k-ksp-queues", "kind": "knowledge", "label": "Queueing and tail latency" },
+        { "id": "k-ksp-capacity", "kind": "knowledge", "label": "Capacity planning and load shedding" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_KNOWLEDGE_SENIOR_PERFORMANCE"],
+      "questions": [
+        { "id": "q-ksp-1", "text": "Explain why modest average utilization can coexist with unacceptable request tail latency.", "kind": "knowledge", "difficulty": "hard", "evidenceRefIds": ["k-ksp-queues"] },
+        { "id": "q-ksp-2", "text": "How would you allocate a latency budget across services when fan-out width changes per request?", "kind": "knowledge", "difficulty": "hard", "evidenceRefIds": ["k-ksp-capacity"] },
+        { "id": "q-ksp-3", "text": "What load-shedding signal avoids rejecting valuable traffic solely because a global queue is full?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-ksp-queues", "k-ksp-capacity"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-ksp", "text": "The interview examines queueing effects, latency budgets, and selective overload control." }
+      ]
+    },
+    {
+      "id": "projects-junior-cli",
+      "title": "Junior command-line project",
+      "mode": "projects",
+      "seniority": "junior",
+      "evidenceCatalog": [
+        { "id": "r-pjc-cli", "kind": "resume", "label": "Synthetic command-line organizer project" },
+        { "id": "jd-pjc-docs", "kind": "jd", "label": "Role values maintainable developer tooling" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_PROJECTS_JUNIOR_CLI"],
+      "questions": [
+        { "id": "q-pjc-1", "text": "Demonstrate how your command-line organizer handles an invalid file path from input to exit code.", "kind": "project", "difficulty": "easy", "evidenceRefIds": ["r-pjc-cli"] },
+        { "id": "q-pjc-2", "text": "Which part of the tool did you redesign after another developer tried to use it?", "kind": "behavioral", "difficulty": "medium", "evidenceRefIds": ["r-pjc-cli", "jd-pjc-docs"] },
+        { "id": "q-pjc-3", "text": "What test would give you confidence that a future refactor preserves command behavior?", "kind": "follow_up", "difficulty": "medium", "evidenceRefIds": ["r-pjc-cli"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-pjc", "text": "The interview verifies implementation ownership, usability feedback, and regression thinking." }
+      ]
+    },
+    {
+      "id": "projects-junior-ui",
+      "title": "Junior interface project",
+      "mode": "projects",
+      "seniority": "junior",
+      "evidenceCatalog": [
+        { "id": "r-pju-catalog", "kind": "resume", "label": "Synthetic product catalog interface" },
+        { "id": "jd-pju-responsive", "kind": "jd", "label": "Role requires responsive web delivery" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_PROJECTS_JUNIOR_UI"],
+      "questions": [
+        { "id": "q-pju-1", "text": "Walk through the catalog component you implemented and the state transitions it owns.", "kind": "project", "difficulty": "easy", "evidenceRefIds": ["r-pju-catalog"] },
+        { "id": "q-pju-2", "text": "Describe a mobile layout defect you found late and how you prevented its recurrence.", "kind": "behavioral", "difficulty": "medium", "evidenceRefIds": ["r-pju-catalog", "jd-pju-responsive"] },
+        { "id": "q-pju-3", "text": "Which browser evidence would prove that your responsive change works beyond one viewport?", "kind": "follow_up", "difficulty": "medium", "evidenceRefIds": ["jd-pju-responsive"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-pju", "text": "The interview focuses on component ownership and responsive quality evidence." }
+      ]
+    },
+    {
+      "id": "projects-mid-observability",
+      "title": "Mid-level observability rollout",
+      "mode": "projects",
+      "seniority": "mid",
+      "evidenceCatalog": [
+        { "id": "r-pmo-telemetry", "kind": "resume", "label": "Synthetic telemetry rollout project" },
+        { "id": "jd-pmo-oncall", "kind": "jd", "label": "Role includes production on-call ownership" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_PROJECTS_MID_OBSERVABILITY"],
+      "questions": [
+        { "id": "q-pmo-1", "text": "Which telemetry gap did your rollout close, and how did you establish the baseline?", "kind": "project", "difficulty": "medium", "evidenceRefIds": ["r-pmo-telemetry"] },
+        { "id": "q-pmo-2", "text": "Tell me about an alert you removed because it created actionless noise during on-call.", "kind": "behavioral", "difficulty": "hard", "evidenceRefIds": ["r-pmo-telemetry", "jd-pmo-oncall"] },
+        { "id": "q-pmo-3", "text": "How did you verify that lower alert volume did not conceal customer-impacting failures?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["r-pmo-telemetry"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-pmo", "text": "The interview checks observability outcomes, alert ownership, and validation discipline." }
+      ]
+    },
+    {
+      "id": "projects-mid-database",
+      "title": "Mid-level database modernization",
+      "mode": "projects",
+      "seniority": "mid",
+      "evidenceCatalog": [
+        { "id": "r-pmd-storage", "kind": "resume", "label": "Synthetic database modernization project" },
+        { "id": "jd-pmd-scale", "kind": "jd", "label": "Role requires scalable data systems" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_PROJECTS_MID_DATABASE"],
+      "questions": [
+        { "id": "q-pmd-1", "text": "Why did you choose that storage model for the modernization instead of extending the existing schema?", "kind": "project", "difficulty": "medium", "evidenceRefIds": ["r-pmd-storage", "jd-pmd-scale"] },
+        { "id": "q-pmd-2", "text": "Describe the hardest data reconciliation discrepancy and how you traced its source.", "kind": "behavioral", "difficulty": "hard", "evidenceRefIds": ["r-pmd-storage"] },
+        { "id": "q-pmd-3", "text": "Which acceptance query decided that the new store was ready to receive production reads?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["r-pmd-storage"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-pmd", "text": "The interview tests storage decisions, reconciliation work, and migration acceptance." }
+      ]
+    },
+    {
+      "id": "projects-mid-delivery",
+      "title": "Mid-level release automation",
+      "mode": "projects",
+      "seniority": "mid",
+      "evidenceCatalog": [
+        { "id": "r-pmde-pipeline", "kind": "resume", "label": "Synthetic continuous delivery project" },
+        { "id": "jd-pmde-quality", "kind": "jd", "label": "Role owns software delivery quality" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_PROJECTS_MID_DELIVERY"],
+      "questions": [
+        { "id": "q-pmde-1", "text": "Map the release pipeline stage you changed to the deployment risk it was meant to reduce.", "kind": "project", "difficulty": "medium", "evidenceRefIds": ["r-pmde-pipeline"] },
+        { "id": "q-pmde-2", "text": "How did you persuade teams to adopt a delivery gate they initially viewed as friction?", "kind": "behavioral", "difficulty": "hard", "evidenceRefIds": ["r-pmde-pipeline", "jd-pmde-quality"] },
+        { "id": "q-pmde-3", "text": "What result showed that the gate improved release quality without slowing recovery work?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["r-pmde-pipeline"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-pmde", "text": "The interview examines delivery risk reduction, adoption, and measurable impact." }
+      ]
+    },
+    {
+      "id": "projects-senior-cost",
+      "title": "Senior infrastructure efficiency program",
+      "mode": "projects",
+      "seniority": "senior",
+      "evidenceCatalog": [
+        { "id": "r-psc-efficiency", "kind": "resume", "label": "Synthetic infrastructure efficiency program" },
+        { "id": "jd-psc-finops", "kind": "jd", "label": "Role balances reliability and infrastructure cost" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_PROJECTS_SENIOR_COST"],
+      "questions": [
+        { "id": "q-psc-1", "text": "Which cost driver did your efficiency program target, and how did you rule out accounting noise?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-psc-efficiency", "jd-psc-finops"] },
+        { "id": "q-psc-2", "text": "Describe a savings proposal you rejected because its reliability risk was not defensible.", "kind": "behavioral", "difficulty": "hard", "evidenceRefIds": ["r-psc-efficiency"] },
+        { "id": "q-psc-3", "text": "How did you detect whether teams shifted costs elsewhere rather than eliminating them?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["r-psc-efficiency"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-psc", "text": "The interview probes cost attribution, reliability judgment, and durable efficiency." }
+      ]
+    },
+    {
+      "id": "projects-senior-incident",
+      "title": "Senior incident learning program",
+      "mode": "projects",
+      "seniority": "senior",
+      "evidenceCatalog": [
+        { "id": "r-psi-response", "kind": "resume", "label": "Synthetic incident response transformation" },
+        { "id": "jd-psi-leadership", "kind": "jd", "label": "Role requires organization-wide technical leadership" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_PROJECTS_SENIOR_INCIDENT"],
+      "questions": [
+        { "id": "q-psi-1", "text": "What organizational failure pattern motivated your incident learning program, and who owned the change?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-psi-response", "jd-psi-leadership"] },
+        { "id": "q-psi-2", "text": "Tell me about a post-incident conclusion you challenged despite executive agreement.", "kind": "behavioral", "difficulty": "hard", "evidenceRefIds": ["r-psi-response"] },
+        { "id": "q-psi-3", "text": "Which longitudinal measure demonstrated that learning improved rather than reporting merely increased?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["r-psi-response"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-psi", "text": "The interview evaluates organizational learning, dissent, and long-term incident outcomes." }
+      ]
+    },
+    {
+      "id": "mixed-junior-api",
+      "title": "Junior API implementation mixed interview",
+      "mode": "mixed",
+      "seniority": "junior",
+      "evidenceCatalog": [
+        { "id": "r-mja-library", "kind": "resume", "label": "Synthetic library API project" },
+        { "id": "k-mja-rest", "kind": "knowledge", "label": "HTTP resource semantics" },
+        { "id": "jd-mja-api", "kind": "jd", "label": "Role requires API development" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_MIXED_JUNIOR_API"],
+      "questions": [
+        { "id": "q-mja-1", "text": "When should an API return a conflict response instead of a validation error?", "kind": "knowledge", "difficulty": "easy", "evidenceRefIds": ["k-mja-rest"] },
+        { "id": "q-mja-2", "text": "Explain how you represented book availability in the library API you built.", "kind": "project", "difficulty": "easy", "evidenceRefIds": ["r-mja-library", "jd-mja-api"] },
+        { "id": "q-mja-3", "text": "What edge case would you add to the borrowing endpoint after reviewing its resource semantics?", "kind": "follow_up", "difficulty": "medium", "evidenceRefIds": ["r-mja-library", "k-mja-rest"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-mja", "text": "The interview connects HTTP semantics to a concrete beginner API implementation." }
+      ]
+    },
+    {
+      "id": "mixed-junior-testing",
+      "title": "Junior testing mixed interview",
+      "mode": "mixed",
+      "seniority": "junior",
+      "evidenceCatalog": [
+        { "id": "r-mjt-checkout", "kind": "resume", "label": "Synthetic checkout testing project" },
+        { "id": "k-mjt-tests", "kind": "knowledge", "label": "Test isolation and boundaries" },
+        { "id": "jd-mjt-quality", "kind": "jd", "label": "Role requires automated quality practices" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_MIXED_JUNIOR_TESTING"],
+      "questions": [
+        { "id": "q-mjt-1", "text": "What distinguishes a unit test boundary from an integration test boundary in a checkout service?", "kind": "knowledge", "difficulty": "easy", "evidenceRefIds": ["k-mjt-tests"] },
+        { "id": "q-mjt-2", "text": "Which checkout defect did your automated test suite catch before release?", "kind": "project", "difficulty": "medium", "evidenceRefIds": ["r-mjt-checkout", "jd-mjt-quality"] },
+        { "id": "q-mjt-3", "text": "How would you remove shared test data if parallel execution made that suite flaky?", "kind": "follow_up", "difficulty": "medium", "evidenceRefIds": ["k-mjt-tests", "r-mjt-checkout"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-mjt", "text": "The interview links testing boundaries to observed defects and suite reliability." }
+      ]
+    },
+    {
+      "id": "mixed-mid-search",
+      "title": "Mid-level search system mixed interview",
+      "mode": "mixed",
+      "seniority": "mid",
+      "evidenceCatalog": [
+        { "id": "r-mms-catalog", "kind": "resume", "label": "Synthetic catalog search project" },
+        { "id": "k-mms-ranking", "kind": "knowledge", "label": "Search ranking evaluation" },
+        { "id": "jd-mms-relevance", "kind": "jd", "label": "Role owns search relevance" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_MIXED_MID_SEARCH"],
+      "questions": [
+        { "id": "q-mms-1", "text": "How do precision and recall trade off when a catalog search query has very few relevant products?", "kind": "knowledge", "difficulty": "medium", "evidenceRefIds": ["k-mms-ranking"] },
+        { "id": "q-mms-2", "text": "Which ranking feature in your catalog search project produced the clearest user outcome?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-mms-catalog", "jd-mms-relevance"] },
+        { "id": "q-mms-3", "text": "What experiment would distinguish a relevance gain from a change in product availability?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-mms-ranking", "r-mms-catalog"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-mms", "text": "The interview joins ranking theory with project evidence and causal measurement." }
+      ]
+    },
+    {
+      "id": "mixed-mid-security",
+      "title": "Mid-level identity service mixed interview",
+      "mode": "mixed",
+      "seniority": "mid",
+      "evidenceCatalog": [
+        { "id": "r-mmse-identity", "kind": "resume", "label": "Synthetic identity service project" },
+        { "id": "k-mmse-access", "kind": "knowledge", "label": "Authorization policy design" },
+        { "id": "jd-mmse-security", "kind": "jd", "label": "Role requires secure service ownership" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_MIXED_MID_SECURITY"],
+      "questions": [
+        { "id": "q-mmse-1", "text": "Compare role-based and attribute-based authorization for resources owned by multiple tenants.", "kind": "knowledge", "difficulty": "medium", "evidenceRefIds": ["k-mmse-access"] },
+        { "id": "q-mmse-2", "text": "Where did your identity service enforce tenant boundaries, and how was that decision tested?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-mmse-identity", "jd-mmse-security"] },
+        { "id": "q-mmse-3", "text": "Which audit event would let you investigate an authorization denial without recording sensitive credentials?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-mmse-access", "r-mmse-identity"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-mmse", "text": "The interview connects authorization design to tenant isolation and auditability." }
+      ]
+    },
+    {
+      "id": "mixed-senior-multiregion",
+      "title": "Senior global payments mixed interview",
+      "mode": "mixed",
+      "seniority": "senior",
+      "evidenceCatalog": [
+        { "id": "r-msm-payments", "kind": "resume", "label": "Synthetic global payments platform" },
+        { "id": "k-msm-consistency", "kind": "knowledge", "label": "Distributed consistency models" },
+        { "id": "jd-msm-global", "kind": "jd", "label": "Role leads global critical systems" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_MIXED_SENIOR_MULTIREGION"],
+      "questions": [
+        { "id": "q-msm-1", "text": "Which payment invariants require coordination across regions, and which can tolerate convergence?", "kind": "knowledge", "difficulty": "hard", "evidenceRefIds": ["k-msm-consistency"] },
+        { "id": "q-msm-2", "text": "What irreversible architecture decision did you make for the global payments platform?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-msm-payments", "jd-msm-global"] },
+        { "id": "q-msm-3", "text": "How would you test whether the platform preserves monetary invariants during a network partition?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-msm-consistency", "r-msm-payments"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-msm", "text": "The interview combines consistency theory, architecture ownership, and partition testing." }
+      ]
+    },
+    {
+      "id": "mixed-senior-ml",
+      "title": "Senior machine learning platform mixed interview",
+      "mode": "mixed",
+      "seniority": "senior",
+      "evidenceCatalog": [
+        { "id": "r-msml-features", "kind": "resume", "label": "Synthetic machine learning feature platform" },
+        { "id": "k-msml-drift", "kind": "knowledge", "label": "Distribution shift and model monitoring" },
+        { "id": "jd-msml-platform", "kind": "jd", "label": "Role leads production machine learning systems" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_MIXED_SENIOR_ML"],
+      "questions": [
+        { "id": "q-msml-1", "text": "How would you separate feature drift from label drift when production labels arrive weeks later?", "kind": "knowledge", "difficulty": "hard", "evidenceRefIds": ["k-msml-drift"] },
+        { "id": "q-msml-2", "text": "Which governance boundary in your feature platform most affected model-team velocity?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-msml-features", "jd-msml-platform"] },
+        { "id": "q-msml-3", "text": "What rollback criterion would you use when model quality is uncertain but feature freshness degrades?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-msml-drift", "r-msml-features"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-msml", "text": "The interview connects drift analysis, platform governance, and operational rollback criteria." }
+      ]
+    },
+    {
+      "id": "mixed-senior-developer-platform",
+      "title": "Senior developer platform mixed interview",
+      "mode": "mixed",
+      "seniority": "senior",
+      "evidenceCatalog": [
+        { "id": "r-msdp-platform", "kind": "resume", "label": "Synthetic internal developer platform" },
+        { "id": "k-msdp-products", "kind": "knowledge", "label": "Platform product measurement" },
+        { "id": "jd-msdp-strategy", "kind": "jd", "label": "Role defines developer productivity strategy" }
+      ],
+      "privateMarkers": ["SYNTH_PRIVATE_MIXED_SENIOR_DEVELOPER_PLATFORM"],
+      "questions": [
+        { "id": "q-msdp-1", "text": "How can you measure developer productivity without rewarding output volume or surveillance behavior?", "kind": "knowledge", "difficulty": "hard", "evidenceRefIds": ["k-msdp-products"] },
+        { "id": "q-msdp-2", "text": "Which capability did you deliberately exclude from the first version of your developer platform?", "kind": "project", "difficulty": "hard", "evidenceRefIds": ["r-msdp-platform", "jd-msdp-strategy"] },
+        { "id": "q-msdp-3", "text": "What adoption evidence would cause you to retire a platform feature despite vocal internal supporters?", "kind": "follow_up", "difficulty": "hard", "evidenceRefIds": ["k-msdp-products", "r-msdp-platform"] }
+      ],
+      "publicTexts": [
+        { "id": "summary-msdp", "text": "The interview examines responsible productivity metrics, product scope, and adoption decisions." }
+      ]
+    }
+  ]
+}
