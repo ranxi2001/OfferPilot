@@ -580,6 +580,60 @@ func TestSQLitePersistenceOutboxRecoversExpiredClaimsAfterReopen(t *testing.T) {
 	}
 }
 
+func TestSQLiteCommitAnswerRollsBackSessionAndCommandWhenEventFails(t *testing.T) {
+	store := openTestSQLiteStore(t)
+	ctx := context.Background()
+	session := sqliteTestSession()
+	if err := store.Create(ctx, session); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	command, _, err := store.CreateOrGetCommand(ctx, CommandSpec{
+		ID: "command-answer", PrincipalID: session.ClientSessionID, SessionID: session.ID,
+		Action: string(ActionAnswer), IdempotencyKey: "answer-key", SubjectID: session.CurrentQuestion.ID,
+		RequestHash: "sha256:answer",
+	})
+	if err != nil {
+		t.Fatalf("CreateOrGetCommand() error = %v", err)
+	}
+	command, err = store.TransitionCommand(ctx, command.ID, CommandPending, CommandTransition{Status: CommandRunning})
+	if err != nil {
+		t.Fatalf("TransitionCommand() error = %v", err)
+	}
+	if _, _, err = store.AppendSessionEvent(ctx, SessionEventSpec{
+		EventID: "event-collision", SessionID: session.ID, CommandID: command.ID,
+		Type: "answer.started", Payload: json.RawMessage(`{"questionId":"question-1"}`),
+	}); err != nil {
+		t.Fatalf("AppendSessionEvent() error = %v", err)
+	}
+
+	expectedVersion := session.Version
+	session.Version++
+	session.State = StateCompleted
+	session.CurrentQuestion = nil
+	err = store.CommitAnswer(ctx, AnswerCommitSpec{
+		Session: session, ExpectedVersion: expectedVersion, CommandID: command.ID,
+		Result: json.RawMessage(`{"interviewId":"interview-1","state":"completed"}`),
+		Event: SessionEventSpec{
+			EventID: "event-collision", SessionID: session.ID, CommandID: command.ID,
+			Type: "answer.committed", Payload: json.RawMessage(`{"questionId":"question-1","status":"succeeded"}`),
+		},
+	})
+	if err == nil {
+		t.Fatal("CommitAnswer() error = nil, want duplicate event failure")
+	}
+	loaded, loadErr := store.Load(ctx, session.ID)
+	if loadErr != nil || loaded.Version != expectedVersion || loaded.State != StateAwaitingAnswer || loaded.CurrentQuestion == nil {
+		t.Fatalf("session was partially committed: version %d state %q question %+v error %v", loaded.Version, loaded.State, loaded.CurrentQuestion, loadErr)
+	}
+	command, err = store.GetCommand(ctx, command.ID)
+	if err != nil || command.Status != CommandRunning || len(command.Result) != 0 {
+		t.Fatalf("command was partially committed: status %q result %s error %v", command.Status, command.Result, err)
+	}
+	if count := sqliteRowCount(t, store, "interview_session_events"); count != 1 {
+		t.Fatalf("event rows = %d, want only the pre-existing event", count)
+	}
+}
+
 func openSharedSQLiteStores(t *testing.T) (*SQLiteStore, *SQLiteStore) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "interviews.sqlite")

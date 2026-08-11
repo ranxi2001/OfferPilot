@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -143,6 +145,123 @@ func TestInterviewStreamTraceExcludesCandidateAndProviderContent(t *testing.T) {
 				t.Fatalf("trace leaked %q: %s", secret, encoded)
 			}
 		}
+	}
+}
+
+type detachedRunInterviewStub struct {
+	started   chan struct{}
+	release   chan struct{}
+	completed chan error
+	calls     atomic.Int32
+}
+
+func newDetachedRunInterviewStub() *detachedRunInterviewStub {
+	return &detachedRunInterviewStub{
+		started: make(chan struct{}), release: make(chan struct{}), completed: make(chan error, 1),
+	}
+}
+
+func (s *detachedRunInterviewStub) Start(ctx context.Context, _ interview.StartRequest) (interview.StartResponse, error) {
+	s.calls.Add(1)
+	close(s.started)
+	<-s.release
+	for index := 0; index < 256; index++ {
+		executiontrace.Emit(ctx, executiontrace.Event{
+			ID: "after-disconnect", Stage: "test", Label: "Background progress",
+			Status: executiontrace.StatusRunning, At: time.Now().UTC(),
+		})
+	}
+	s.completed <- ctx.Err()
+	return interview.StartResponse{}, nil
+}
+
+func (s *detachedRunInterviewStub) Answer(context.Context, interview.AnswerRequest) (interview.AnswerResponse, error) {
+	return interview.AnswerResponse{}, nil
+}
+
+func (s *detachedRunInterviewStub) Report(context.Context, interview.ReportRequest) (interview.ReportResponse, error) {
+	return interview.ReportResponse{}, nil
+}
+
+func TestInterviewStreamDisconnectDoesNotCancelRun(t *testing.T) {
+	stub := newDetachedRunInterviewStub()
+	server := newTestServer(t, Config{ModelConfigured: true, InterviewRunTimeout: time.Second}, stub)
+	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	request := httptest.NewRequest(http.MethodPost, "/api/interview/stream", strings.NewReader(`{"action":"start"}`)).WithContext(requestCtx)
+	handlerDone := make(chan struct{})
+	go func() {
+		server.Handler().ServeHTTP(httptest.NewRecorder(), request)
+		close(handlerDone)
+	}()
+
+	select {
+	case <-stub.started:
+	case <-time.After(time.Second):
+		t.Fatal("interview service did not start")
+	}
+	cancelRequest()
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("stream handler did not return after disconnect")
+	}
+	close(stub.release)
+
+	select {
+	case runErr := <-stub.completed:
+		if runErr != nil {
+			t.Fatalf("background run inherited request cancellation: %v", runErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("background run blocked after the stream disconnected")
+	}
+	if calls := stub.calls.Load(); calls != 1 {
+		t.Fatalf("interview service calls = %d, want 1", calls)
+	}
+}
+
+type timeoutInterviewStub struct {
+	completed chan error
+	calls     atomic.Int32
+}
+
+func (s *timeoutInterviewStub) Start(ctx context.Context, _ interview.StartRequest) (interview.StartResponse, error) {
+	s.calls.Add(1)
+	<-ctx.Done()
+	s.completed <- ctx.Err()
+	return interview.StartResponse{}, ctx.Err()
+}
+
+func (s *timeoutInterviewStub) Answer(context.Context, interview.AnswerRequest) (interview.AnswerResponse, error) {
+	return interview.AnswerResponse{}, nil
+}
+
+func (s *timeoutInterviewStub) Report(context.Context, interview.ReportRequest) (interview.ReportResponse, error) {
+	return interview.ReportResponse{}, nil
+}
+
+func TestInterviewStreamRunTimeoutCancelsService(t *testing.T) {
+	stub := &timeoutInterviewStub{completed: make(chan error, 1)}
+	server := newTestServer(t, Config{ModelConfigured: true, InterviewRunTimeout: 25 * time.Millisecond}, stub)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(
+		http.MethodPost, "/api/interview/stream", strings.NewReader(`{"action":"start"}`),
+	))
+
+	select {
+	case runErr := <-stub.completed:
+		if !errors.Is(runErr, context.DeadlineExceeded) {
+			t.Fatalf("service context error = %v, want deadline exceeded", runErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("interview service did not observe its run timeout")
+	}
+	if calls := stub.calls.Load(); calls != 1 {
+		t.Fatalf("interview service calls = %d, want 1", calls)
+	}
+	lines := decodeInterviewStream(t, response.Body.String())
+	if final := lines[len(lines)-1]; final.Type != "result" || final.Status != http.StatusInternalServerError {
+		t.Fatalf("final envelope = %#v", final)
 	}
 }
 

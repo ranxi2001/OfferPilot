@@ -31,7 +31,7 @@ func TestServiceEmitsSafeExecutionStagesAcrossInterviewLifecycle(t *testing.T) {
 		t.Fatal("first Answer() did not produce a next question")
 	}
 	secondRequest := AnswerRequest{
-		Action: ActionAnswer, InterviewID: first.InterviewID, QuestionID: first.NextQuestion.ID,
+		Action: ActionAnswer, InterviewID: first.InterviewID, QuestionID: first.NextQuestion.ID, ClientAnswerID: "trace-answer-2",
 		Answer: AnswerPayload{Text: "second answer", InputMode: InputModeText},
 	}
 	second, err := service.Answer(ctx, secondRequest)

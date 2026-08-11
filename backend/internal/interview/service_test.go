@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -273,7 +272,7 @@ func TestProjectRootStopsAfterTwoFollowUps(t *testing.T) {
 	wantAxes := []string{"ownership", "metrics"}
 	for depth, wantAxis := range wantAxes {
 		response, answerErr := service.Answer(context.Background(), AnswerRequest{
-			Action: ActionAnswer, InterviewID: started.InterviewID, QuestionID: question.ID,
+			Action: ActionAnswer, InterviewID: started.InterviewID, QuestionID: question.ID, ClientAnswerID: fmt.Sprintf("answer-depth-%d", depth+1),
 			Answer: AnswerPayload{Text: "我们参与了这个项目，效果还可以。", InputMode: InputModeText},
 		})
 		if answerErr != nil {
@@ -289,7 +288,7 @@ func TestProjectRootStopsAfterTwoFollowUps(t *testing.T) {
 	}
 
 	response, err := service.Answer(context.Background(), AnswerRequest{
-		Action: ActionAnswer, InterviewID: started.InterviewID, QuestionID: question.ID,
+		Action: ActionAnswer, InterviewID: started.InterviewID, QuestionID: question.ID, ClientAnswerID: "answer-depth-3",
 		Answer: AnswerPayload{Text: "仍然只是一个没有数据的概括。", InputMode: InputModeText},
 	})
 	if err != nil {
@@ -476,29 +475,34 @@ func TestAgentFailuresFailClosedWithoutCommitting(t *testing.T) {
 	})
 }
 
-func TestDuplicateAnswerReturnsConflict(t *testing.T) {
-	service := newTestService(groundedAgent(), NewMemoryStore())
+func TestDuplicateAnswerReplaysSucceededResponse(t *testing.T) {
+	agent := groundedAgent()
+	service := newTestService(agent, NewMemoryStore())
 	started, err := service.Start(context.Background(), startRequest(2, FocusMixed, standardMaterials()))
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
 	request := answerRequest(started, "我负责实现该模块，但目前没有补充量化数据。")
-	if _, err = service.Answer(context.Background(), request); err != nil {
+	first, err := service.Answer(context.Background(), request)
+	if err != nil {
 		t.Fatalf("first Answer() error = %v", err)
 	}
-	if _, err = service.Answer(context.Background(), request); !IsCode(err, CodeConflict) {
-		t.Fatalf("duplicate Answer() error = %v, want conflict", err)
+	second, err := service.Answer(context.Background(), request)
+	if err != nil || !reflect.DeepEqual(second, first) {
+		t.Fatalf("duplicate Answer() = %+v, %v; want replay %+v", second, err, first)
+	}
+	if agent.assessCalls != 1 || agent.questionCalls != 2 {
+		t.Fatalf("agent calls after replay = assess %d generate %d, want 1/2", agent.assessCalls, agent.questionCalls)
 	}
 }
 
-func TestConcurrentAnswersUseOptimisticConflict(t *testing.T) {
-	var arrived atomic.Int32
+func TestConcurrentAnswersWithSameIDExecuteOnce(t *testing.T) {
+	const callers = 20
+	entered := make(chan struct{})
 	release := make(chan struct{})
 	agent := groundedAgent()
 	agent.assessFn = func(_ AssessAnswerRequest, _ int) (Assessment, error) {
-		if arrived.Add(1) == 2 {
-			close(release)
-		}
+		close(entered)
 		<-release
 		return Assessment{Correctness: 4, Depth: 3, Specificity: 3, Ownership: 3, Metrics: 3, Tradeoffs: 3}, nil
 	}
@@ -508,26 +512,37 @@ func TestConcurrentAnswersUseOptimisticConflict(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 	request := answerRequest(started, "我负责实现该模块，将延迟降到 120ms，但方案仍有运维复杂度的权衡。")
-	results := make(chan error, 2)
-	for i := 0; i < 2; i++ {
+	type answerResult struct {
+		response AnswerResponse
+		err      error
+	}
+	results := make(chan answerResult, callers)
+	for i := 0; i < callers; i++ {
 		go func() {
-			_, answerErr := service.Answer(context.Background(), request)
-			results <- answerErr
+			response, answerErr := service.Answer(context.Background(), request)
+			results <- answerResult{response: response, err: answerErr}
 		}()
 	}
-	var success, conflicts int
-	for i := 0; i < 2; i++ {
-		err := <-results
-		if err == nil {
-			success++
-		} else if IsCode(err, CodeConflict) {
-			conflicts++
-		} else {
-			t.Fatalf("concurrent Answer() error = %v", err)
+	<-entered
+	close(release)
+	var first AnswerResponse
+	for i := 0; i < callers; i++ {
+		result := <-results
+		if result.err != nil {
+			t.Fatalf("concurrent Answer() error = %v", result.err)
+		}
+		if i == 0 {
+			first = result.response
+		} else if !reflect.DeepEqual(result.response, first) {
+			t.Fatalf("concurrent response %d = %+v, want replay %+v", i, result.response, first)
 		}
 	}
-	if success != 1 || conflicts != 1 {
-		t.Fatalf("success=%d conflicts=%d, want 1/1", success, conflicts)
+	if agent.assessCalls != 1 || agent.questionCalls != 2 {
+		t.Fatalf("agent calls = assess %d generate %d, want 1/2", agent.assessCalls, agent.questionCalls)
+	}
+	stored, err := service.store.Load(context.Background(), started.InterviewID)
+	if err != nil || len(stored.Answers) != 1 || stored.Version != 2 {
+		t.Fatalf("stored session = answers %d version %d error %v, want 1/2", len(stored.Answers), stored.Version, err)
 	}
 }
 
@@ -1132,7 +1147,8 @@ func standardMaterials() MaterialsInput {
 func answerRequest(started StartResponse, text string) AnswerRequest {
 	return AnswerRequest{
 		Action: ActionAnswer, InterviewID: started.InterviewID, QuestionID: started.Question.ID,
-		Answer: AnswerPayload{Text: text, InputMode: InputModeText, DurationMS: 1000},
+		ClientAnswerID: "answer-" + started.Question.ID,
+		Answer:         AnswerPayload{Text: text, InputMode: InputModeText, DurationMS: 1000},
 	}
 }
 

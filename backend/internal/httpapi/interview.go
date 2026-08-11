@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"offerpilot/backend/internal/executiontrace"
 	"offerpilot/backend/internal/interview"
@@ -135,26 +137,39 @@ type capturedInterviewResponse struct {
 // handleInterviewStream reuses the compatibility handler so the streamed and
 // non-streamed routes cannot drift in request validation or response mapping.
 func (s *Server) handleInterviewStream(response http.ResponseWriter, request *http.Request) {
-	response.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
-	response.Header().Set("Cache-Control", "no-store")
-	response.Header().Set("X-Accel-Buffering", "no")
-	response.WriteHeader(http.StatusOK)
-	flusher, _ := response.(http.Flusher)
-	if flusher != nil {
-		flusher.Flush()
+	body, readErr := readBody(response, request, s.config.MaxInterviewBytes)
+	if readErr != nil {
+		capture := newBufferedResponseWriter()
+		writeReadError(capture, readErr)
+		s.startInterviewStream(response)
+		_ = writeCapturedInterviewResult(response, capture.Status(), capture.Body())
+		return
 	}
+
+	flusher := s.startInterviewStream(response)
 
 	events := make(chan executiontrace.Event, 64)
 	result := make(chan capturedInterviewResponse, 1)
-	ctx := executiontrace.WithSink(request.Context(), func(event executiontrace.Event) {
+	var streamOpen atomic.Bool
+	streamOpen.Store(true)
+	defer streamOpen.Store(false)
+
+	runCtx, cancelRun := context.WithTimeout(context.WithoutCancel(request.Context()), s.config.InterviewRunTimeout)
+	ctx := executiontrace.WithSink(runCtx, func(event executiontrace.Event) {
+		if !streamOpen.Load() {
+			return
+		}
 		select {
 		case events <- event:
-		case <-request.Context().Done():
+		default:
 		}
 	})
-	tracedRequest := request.WithContext(ctx)
+	tracedRequest := request.Clone(ctx)
+	tracedRequest.Body = io.NopCloser(bytes.NewReader(body))
+	tracedRequest.ContentLength = int64(len(body))
 
 	go func() {
+		defer cancelRun()
 		capture := newBufferedResponseWriter()
 		var handlerErr error
 		span := executiontrace.Start(ctx, "request", "Execute interview action", "")
@@ -169,33 +184,56 @@ func (s *Server) handleInterviewStream(response http.ResponseWriter, request *ht
 			}
 			span.End(handlerErr, "")
 			result <- capturedInterviewResponse{status: capture.Status(), body: append([]byte(nil), capture.Body()...)}
-			close(events)
 		}()
 		s.handleInterview(capture, tracedRequest)
 	}()
 
 	for {
 		select {
-		case event, ok := <-events:
-			if !ok {
-				captured := <-result
-				payload := bytes.TrimSpace(captured.body)
-				if !json.Valid(payload) {
-					payload = []byte(`{"error":{"code":"internal","message":"Interview service returned an invalid response","retryable":true}}`)
-					captured.status = http.StatusInternalServerError
-				}
-				_ = writeNDJSON(response, flusher, interviewStreamEnvelope{
-					Type: "result", Status: captured.status, Data: json.RawMessage(payload),
-				})
-				return
-			}
+		case event := <-events:
 			if err := writeNDJSON(response, flusher, interviewStreamEnvelope{Type: "trace", Trace: &event}); err != nil {
 				return
+			}
+		case captured := <-result:
+			for {
+				select {
+				case event := <-events:
+					if err := writeNDJSON(response, flusher, interviewStreamEnvelope{Type: "trace", Trace: &event}); err != nil {
+						return
+					}
+				default:
+					_ = writeCapturedInterviewResult(response, captured.status, captured.body)
+					return
+				}
 			}
 		case <-request.Context().Done():
 			return
 		}
 	}
+}
+
+func (s *Server) startInterviewStream(response http.ResponseWriter) http.Flusher {
+	response.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("X-Accel-Buffering", "no")
+	response.WriteHeader(http.StatusOK)
+	flusher, _ := response.(http.Flusher)
+	if flusher != nil {
+		flusher.Flush()
+	}
+	return flusher
+}
+
+func writeCapturedInterviewResult(response io.Writer, status int, body []byte) error {
+	payload := bytes.TrimSpace(body)
+	if !json.Valid(payload) {
+		payload = []byte(`{"error":{"code":"internal","message":"Interview service returned an invalid response","retryable":true}}`)
+		status = http.StatusInternalServerError
+	}
+	flusher, _ := response.(http.Flusher)
+	return writeNDJSON(response, flusher, interviewStreamEnvelope{
+		Type: "result", Status: status, Data: json.RawMessage(payload),
+	})
 }
 
 func writeNDJSON(response io.Writer, flusher http.Flusher, payload interviewStreamEnvelope) error {

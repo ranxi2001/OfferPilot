@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -135,6 +136,110 @@ func (s *SQLiteStore) TransitionCommand(
 		return Command{}, fmt.Errorf("%w: command %q status changed", ErrPersistenceConflict, id)
 	}
 	return s.GetCommand(ctx, id)
+}
+
+func (s *SQLiteStore) CommitAnswer(ctx context.Context, spec AnswerCommitSpec) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if spec.CommandID == "" {
+		return errors.New("interview persistence: answer command id is empty")
+	}
+	if spec.Session.ID == "" || spec.Event.SessionID != spec.Session.ID || spec.Event.CommandID != spec.CommandID {
+		return errors.New("interview persistence: answer commit scope is invalid")
+	}
+	if spec.ExpectedVersion == math.MaxInt64 || spec.Session.Version != spec.ExpectedVersion+1 {
+		return ErrStoreConflict
+	}
+	resultJSON, err := requiredJSON(spec.Result, "answer command result")
+	if err != nil {
+		return err
+	}
+	eventJSON, err := requiredJSON(spec.Event.Payload, "answer committed event")
+	if err != nil {
+		return err
+	}
+	if spec.Event.EventID == "" || spec.Event.Type == "" {
+		return errors.New("interview persistence: answer committed event is invalid")
+	}
+	snapshot, err := marshalSQLiteSession(spec.Session)
+	if err != nil {
+		return err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("interview persistence: begin answer commit: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	now := time.Now().UTC()
+	updated, err := tx.ExecContext(ctx, `
+		UPDATE interview_sessions
+		SET version = ?, snapshot_json = ?, updated_at_ms = ?
+		WHERE id = ? AND version = ?
+	`, spec.Session.Version, snapshot, now.UnixMilli(), spec.Session.ID, spec.ExpectedVersion)
+	if err != nil {
+		return fmt.Errorf("interview persistence: update answer session: %w", err)
+	}
+	count, err := updated.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("interview persistence: inspect answer session update: %w", err)
+	}
+	if count != 1 {
+		var exists int
+		if queryErr := tx.QueryRowContext(ctx, `SELECT 1 FROM interview_sessions WHERE id = ?`, spec.Session.ID).Scan(&exists); errors.Is(queryErr, sql.ErrNoRows) {
+			return ErrStoreNotFound
+		} else if queryErr != nil {
+			return fmt.Errorf("interview persistence: inspect answer session: %w", queryErr)
+		}
+		return ErrStoreConflict
+	}
+
+	updated, err = tx.ExecContext(ctx, `
+		UPDATE interview_commands
+		SET status = ?, result_json = ?, error_json = NULL, updated_at_ms = ?
+		WHERE id = ? AND session_id = ? AND action = ? AND status = ?
+	`, CommandSucceeded, resultJSON, now.UnixMilli(), spec.CommandID, spec.Session.ID, ActionAnswer, CommandRunning)
+	if err != nil {
+		return fmt.Errorf("interview persistence: complete answer command: %w", err)
+	}
+	count, err = updated.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("interview persistence: inspect answer command completion: %w", err)
+	}
+	if count != 1 {
+		var status CommandStatus
+		if queryErr := tx.QueryRowContext(ctx, `SELECT status FROM interview_commands WHERE id = ?`, spec.CommandID).Scan(&status); errors.Is(queryErr, sql.ErrNoRows) {
+			return ErrPersistenceNotFound
+		} else if queryErr != nil {
+			return fmt.Errorf("interview persistence: inspect answer command: %w", queryErr)
+		}
+		return fmt.Errorf("%w: answer command %q status is %q", ErrPersistenceConflict, spec.CommandID, status)
+	}
+
+	var sequence int64
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO interview_session_cursors (session_id, last_sequence)
+		VALUES (?, 1)
+		ON CONFLICT(session_id) DO UPDATE
+		SET last_sequence = interview_session_cursors.last_sequence + 1
+		RETURNING last_sequence
+	`, spec.Session.ID).Scan(&sequence)
+	if err != nil {
+		return fmt.Errorf("interview persistence: allocate answer event sequence: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO interview_session_events (
+			session_id, sequence, event_id, command_id, event_type, payload_json, created_at_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, spec.Session.ID, sequence, spec.Event.EventID, spec.CommandID, spec.Event.Type, eventJSON, now.UnixMilli())
+	if err != nil {
+		return fmt.Errorf("interview persistence: append answer committed event: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("interview persistence: commit answer: %w", err)
+	}
+	return nil
 }
 
 func scanSQLiteCommand(scanner sqliteScanner) (Command, error) {

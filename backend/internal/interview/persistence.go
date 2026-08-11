@@ -57,6 +57,24 @@ type CommandTransition struct {
 	Error  json.RawMessage
 }
 
+// AnswerCommitSpec is the single durable commit boundary for an accepted
+// answer. Implementations must apply the session CAS, command result, and
+// committed event atomically.
+type AnswerCommitSpec struct {
+	Session         InterviewSession
+	ExpectedVersion int64
+	CommandID       string
+	Result          json.RawMessage
+	Event           SessionEventSpec
+}
+
+// AnswerCommitRepository is optional because in-memory and legacy Store
+// implementations do not expose transactions. A durable answer command is
+// executed only when its persistence repository implements this contract.
+type AnswerCommitRepository interface {
+	CommitAnswer(context.Context, AnswerCommitSpec) error
+}
+
 type SessionEventSpec struct {
 	EventID   string
 	SessionID string

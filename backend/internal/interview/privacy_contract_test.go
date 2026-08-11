@@ -210,7 +210,7 @@ func TestPrivacyContractDeferredAnswerResponseOmitsAssessment(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 	response, err := service.Answer(context.Background(), AnswerRequest{
-		Action: ActionAnswer, InterviewID: started.InterviewID, QuestionID: started.Question.ID,
+		Action: ActionAnswer, InterviewID: started.InterviewID, QuestionID: started.Question.ID, ClientAnswerID: "contract-answer-1",
 		Answer: AnswerPayload{Text: "我负责领域模型与持久化边界。", InputMode: InputModeText},
 	})
 	if err != nil {

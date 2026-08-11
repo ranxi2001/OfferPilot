@@ -146,10 +146,11 @@ type AnswerPayload struct {
 }
 
 type AnswerRequest struct {
-	Action      Action        `json:"action"`
-	InterviewID string        `json:"interviewId"`
-	QuestionID  string        `json:"questionId"`
-	Answer      AnswerPayload `json:"answer"`
+	Action         Action        `json:"action"`
+	InterviewID    string        `json:"interviewId"`
+	QuestionID     string        `json:"questionId"`
+	ClientAnswerID string        `json:"clientAnswerId"`
+	Answer         AnswerPayload `json:"answer"`
 }
 
 type AnswerFeedback struct {
@@ -486,6 +487,7 @@ type Dependencies struct {
 	Retriever      KnowledgeRetriever
 	ProfileBuilder ProfileBuilder
 	Store          Store
+	Persistence    PersistenceRepository
 	Clock          Clock
 	IDs            IDGenerator
 }

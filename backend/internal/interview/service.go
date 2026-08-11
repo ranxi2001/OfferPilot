@@ -2,10 +2,14 @@ package interview
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"unicode"
 
 	"offerpilot/backend/internal/executiontrace"
@@ -14,13 +18,19 @@ import (
 const maxKnowledgeEvidencePerQuestion = 5
 
 type Service struct {
-	agent          Agent
-	planner        CoveragePlanner
-	retriever      KnowledgeRetriever
-	profileBuilder ProfileBuilder
-	store          Store
-	clock          Clock
-	ids            IDGenerator
+	agent              Agent
+	planner            CoveragePlanner
+	retriever          KnowledgeRetriever
+	profileBuilder     ProfileBuilder
+	store              Store
+	persistence        PersistenceRepository
+	answerCommitter    AnswerCommitRepository
+	clock              Clock
+	ids                IDGenerator
+	answerCoordinator  keyedCoordinator
+	memoryAnswerMu     sync.Mutex
+	memoryAnswers      map[string]memoryAnswerCommand
+	memoryAnswerTopics map[string]string
 }
 
 func NewService(dependencies Dependencies) *Service {
@@ -44,14 +54,23 @@ func NewService(dependencies Dependencies) *Service {
 	if profileBuilder == nil {
 		profileBuilder = newDefaultProfileBuilder()
 	}
+	persistence := dependencies.Persistence
+	if persistence == nil {
+		persistence, _ = store.(PersistenceRepository)
+	}
+	answerCommitter, _ := persistence.(AnswerCommitRepository)
 	return &Service{
-		agent:          dependencies.Agent,
-		planner:        planner,
-		retriever:      dependencies.Retriever,
-		profileBuilder: profileBuilder,
-		store:          store,
-		clock:          clock,
-		ids:            ids,
+		agent:              dependencies.Agent,
+		planner:            planner,
+		retriever:          dependencies.Retriever,
+		profileBuilder:     profileBuilder,
+		store:              store,
+		persistence:        persistence,
+		answerCommitter:    answerCommitter,
+		clock:              clock,
+		ids:                ids,
+		memoryAnswers:      make(map[string]memoryAnswerCommand),
+		memoryAnswerTopics: make(map[string]string),
 	}
 }
 
@@ -142,24 +161,68 @@ func (s *Service) Answer(ctx context.Context, request AnswerRequest) (AnswerResp
 		return AnswerResponse{}, err
 	}
 	validationSpan.End(nil, "")
+	loaded, err := s.load(ctx, request.InterviewID)
+	if err != nil {
+		return AnswerResponse{}, err
+	}
+	release := s.answerCoordinator.acquire(answerCoordinationKey(loaded.ClientSessionID, loaded.ID))
+	defer release()
+
+	// Reload after entering the per-session critical section. A request that
+	// waited for an identical in-flight answer must observe its committed
+	// command result instead of running the assessor against a stale snapshot.
 	session, err := s.load(ctx, request.InterviewID)
 	if err != nil {
 		return AnswerResponse{}, err
 	}
+	execution, replay, err := s.beginAnswerExecution(ctx, session, request)
+	if err != nil {
+		return AnswerResponse{}, err
+	}
+	if replay != nil {
+		return *replay, nil
+	}
+
+	response, updated, expectedVersion, err := s.prepareAnswer(ctx, session, request)
+	if err != nil {
+		s.failAnswerExecution(ctx, execution, request.QuestionID, err)
+		return AnswerResponse{}, err
+	}
+	if err = s.commitAnswerExecution(ctx, execution, updated, expectedVersion, request.QuestionID, response); err != nil {
+		if replayed, replayErr := s.replaySucceededAnswer(ctx, execution); replayErr == nil && replayed != nil {
+			return *replayed, nil
+		}
+		s.failAnswerExecution(ctx, execution, request.QuestionID, err)
+		if errors.Is(err, ErrStoreConflict) {
+			return AnswerResponse{}, conflict("answer raced with another update; reload the active question", err)
+		}
+		if errors.Is(err, ErrStoreNotFound) {
+			return AnswerResponse{}, &DomainError{Code: CodeNotFound, Message: "interview not found", Cause: err}
+		}
+		return AnswerResponse{}, &DomainError{Code: CodeInternal, Message: "could not persist answer", Cause: err}
+	}
+	return response, nil
+}
+
+func (s *Service) prepareAnswer(
+	ctx context.Context,
+	session InterviewSession,
+	request AnswerRequest,
+) (AnswerResponse, InterviewSession, int64, error) {
 	if session.State == StateCompleted {
-		return AnswerResponse{}, conflict("the interview no longer accepts answers", nil)
+		return AnswerResponse{}, InterviewSession{}, 0, conflict("the interview no longer accepts answers", nil)
 	}
 	if session.State != StateAwaitingAnswer || session.CurrentQuestion == nil {
-		return AnswerResponse{}, &DomainError{Code: CodeInvalidState, Message: "interview is not awaiting an answer"}
+		return AnswerResponse{}, InterviewSession{}, 0, &DomainError{Code: CodeInvalidState, Message: "interview is not awaiting an answer"}
 	}
 	if session.CurrentQuestion.ID != request.QuestionID {
-		return AnswerResponse{}, conflict("questionId is stale or does not match the active question", nil)
+		return AnswerResponse{}, InterviewSession{}, 0, conflict("questionId is stale or does not match the active question", nil)
 	}
 
 	expectedVersion := session.Version
 	assessment, err := s.assessAnswer(ctx, session, *session.CurrentQuestion, request.Answer)
 	if err != nil {
-		return AnswerResponse{}, err
+		return AnswerResponse{}, InterviewSession{}, 0, err
 	}
 	policySpan := executiontrace.Start(ctx, "policy", "Select adaptive interview action", "")
 	decision := derivePolicy(session, assessment)
@@ -183,11 +246,11 @@ func (s *Service) Answer(ctx context.Context, request AnswerRequest) (AnswerResp
 		if decision.Action == PolicyAdvance {
 			selection, selectionErr := s.planNextCoverage(ctx, session, record)
 			if selectionErr != nil {
-				return AnswerResponse{}, selectionErr
+				return AnswerResponse{}, InterviewSession{}, 0, selectionErr
 			}
 			selectedPoint, position, exists := findCoveragePoint(session.Profile, selection.CoveragePointID)
 			if !exists {
-				return AnswerResponse{}, unavailable("coverage planning returned an invalid target", fmt.Errorf("unknown coverage point %q", selection.CoveragePointID))
+				return AnswerResponse{}, InterviewSession{}, 0, unavailable("coverage planning returned an invalid target", fmt.Errorf("unknown coverage point %q", selection.CoveragePointID))
 			}
 			point = selectedPoint
 			session.CoverageCursor = position
@@ -199,24 +262,12 @@ func (s *Service) Answer(ctx context.Context, request AnswerRequest) (AnswerResp
 		point = s.bindKnowledgeContext(ctx, &session, point, record.Question, assessment.Gaps)
 		question, questionErr := s.generateQuestion(ctx, session, point, decision, request.QuestionID)
 		if questionErr != nil {
-			return AnswerResponse{}, questionErr
+			return AnswerResponse{}, InterviewSession{}, 0, questionErr
 		}
 		session.CurrentQuestion = &question
 		nextQuestion = &question
 	}
 	session.Version++
-	persistenceSpan := executiontrace.Start(ctx, "persistence", "Persist interview answer", "")
-	if err := s.store.Save(ctx, session, expectedVersion); err != nil {
-		persistenceSpan.End(err, "")
-		if errors.Is(err, ErrStoreConflict) {
-			return AnswerResponse{}, conflict("answer raced with another update; reload the active question", err)
-		}
-		if errors.Is(err, ErrStoreNotFound) {
-			return AnswerResponse{}, &DomainError{Code: CodeNotFound, Message: "interview not found", Cause: err}
-		}
-		return AnswerResponse{}, &DomainError{Code: CodeInternal, Message: "could not persist answer", Cause: err}
-	}
-	persistenceSpan.End(nil, "")
 
 	feedback := AnswerFeedback{
 		Focus: coveragePointByID(session.Profile, record.Question.CoveragePointID).Area,
@@ -228,14 +279,373 @@ func (s *Service) Answer(ctx context.Context, request AnswerRequest) (AnswerResp
 		feedback.Summary = assessmentSummary(feedback.Focus, assessment)
 	}
 
-	return AnswerResponse{
+	response := AnswerResponse{
 		InterviewID:  session.ID,
 		State:        session.State,
 		Feedback:     feedback,
 		NextQuestion: nextQuestion,
 		Progress:     progressFor(session),
 		ReportReady:  session.State == StateCompleted,
-	}, nil
+	}
+	return response, session, expectedVersion, nil
+}
+
+type answerExecution struct {
+	commandID string
+	sessionID string
+	scope     string
+	durable   bool
+}
+
+type memoryAnswerCommand struct {
+	requestHash string
+	status      CommandStatus
+	result      json.RawMessage
+}
+
+type answerLifecycleEvent struct {
+	QuestionID    string         `json:"questionId"`
+	Status        string         `json:"status"`
+	State         InterviewState `json:"state,omitempty"`
+	NextQuestion  string         `json:"nextQuestionId,omitempty"`
+	AnsweredCount int            `json:"answeredCount,omitempty"`
+	ErrorCode     ErrorCode      `json:"errorCode,omitempty"`
+	Retryable     bool           `json:"retryable,omitempty"`
+}
+
+func (s *Service) beginAnswerExecution(
+	ctx context.Context,
+	session InterviewSession,
+	request AnswerRequest,
+) (answerExecution, *AnswerResponse, error) {
+	requestHash, err := answerRequestHash(request)
+	if err != nil {
+		return answerExecution{}, nil, &DomainError{Code: CodeInternal, Message: "could not fingerprint answer", Cause: err}
+	}
+	scope := answerCommandScope(session.ClientSessionID, session.ID, request.ClientAnswerID)
+	execution := answerExecution{sessionID: session.ID, scope: scope}
+	if s.persistence == nil {
+		return s.beginMemoryAnswer(execution, session, request, requestHash)
+	}
+	if s.answerCommitter == nil {
+		return answerExecution{}, nil, &DomainError{
+			Code: CodeInternal, Message: "answer persistence does not support atomic commits",
+		}
+	}
+
+	command, _, err := s.persistence.CreateOrGetCommand(ctx, CommandSpec{
+		ID:             s.ids.NewID("command"),
+		PrincipalID:    session.ClientSessionID,
+		SessionID:      session.ID,
+		Action:         string(ActionAnswer),
+		IdempotencyKey: request.ClientAnswerID,
+		SubjectID:      request.QuestionID,
+		RequestHash:    requestHash,
+	})
+	if err != nil {
+		return answerExecution{}, nil, answerCommandError(err)
+	}
+	execution.commandID = command.ID
+	execution.durable = true
+	if command.Status == CommandSucceeded {
+		response, decodeErr := decodeAnswerResponse(command.Result)
+		return execution, response, decodeErr
+	}
+	if command.Status == CommandRunning {
+		return answerExecution{}, nil, unavailable("answer is already being processed; retry with the same clientAnswerId", ErrPersistenceConflict)
+	}
+	if command.Status != CommandPending && command.Status != CommandFailed {
+		return answerExecution{}, nil, &DomainError{Code: CodeInternal, Message: "answer command has an invalid state"}
+	}
+
+	command, err = s.persistence.TransitionCommand(ctx, command.ID, command.Status, CommandTransition{Status: CommandRunning})
+	if err != nil {
+		if replay, replayErr := s.replaySucceededAnswer(ctx, execution); replayErr == nil && replay != nil {
+			return execution, replay, nil
+		}
+		return answerExecution{}, nil, unavailable("answer is already being processed; retry with the same clientAnswerId", err)
+	}
+	if command.Status != CommandRunning {
+		return answerExecution{}, nil, &DomainError{Code: CodeInternal, Message: "could not start answer command"}
+	}
+	if err = s.appendAnswerEvent(ctx, execution, "answer.started", answerLifecycleEvent{
+		QuestionID: request.QuestionID,
+		Status:     string(CommandRunning),
+	}); err != nil {
+		s.failAnswerExecution(ctx, execution, request.QuestionID, err)
+		return answerExecution{}, nil, &DomainError{Code: CodeInternal, Message: "could not record answer start", Cause: err}
+	}
+	return execution, nil, nil
+}
+
+func (s *Service) beginMemoryAnswer(
+	execution answerExecution,
+	session InterviewSession,
+	request AnswerRequest,
+	requestHash string,
+) (answerExecution, *AnswerResponse, error) {
+	topic := answerTopicScope(session.ClientSessionID, session.ID, request.QuestionID)
+	s.memoryAnswerMu.Lock()
+	defer s.memoryAnswerMu.Unlock()
+	if command, exists := s.memoryAnswers[execution.scope]; exists {
+		if command.requestHash != requestHash {
+			return answerExecution{}, nil, conflict("clientAnswerId was already used with a different answer", ErrIdempotencyConflict)
+		}
+		switch command.status {
+		case CommandSucceeded:
+			response, err := decodeAnswerResponse(command.result)
+			return execution, response, err
+		case CommandRunning:
+			return answerExecution{}, nil, unavailable("answer is already being processed; retry with the same clientAnswerId", ErrPersistenceConflict)
+		case CommandFailed, CommandPending:
+			command.status = CommandRunning
+			command.result = nil
+			s.memoryAnswers[execution.scope] = command
+			return execution, nil, nil
+		default:
+			return answerExecution{}, nil, &DomainError{Code: CodeInternal, Message: "answer command has an invalid state"}
+		}
+	}
+	if existingScope, exists := s.memoryAnswerTopics[topic]; exists && existingScope != execution.scope {
+		return answerExecution{}, nil, conflict("question already has an accepted answer", ErrAnswerAlreadyCommitted)
+	}
+	s.memoryAnswerTopics[topic] = execution.scope
+	s.memoryAnswers[execution.scope] = memoryAnswerCommand{requestHash: requestHash, status: CommandRunning}
+	return execution, nil, nil
+}
+
+func (s *Service) commitAnswerExecution(
+	ctx context.Context,
+	execution answerExecution,
+	session InterviewSession,
+	expectedVersion int64,
+	questionID string,
+	response AnswerResponse,
+) error {
+	result, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("encode answer response: %w", err)
+	}
+	persistenceSpan := executiontrace.Start(ctx, "persistence", "Persist interview answer", "")
+	defer func() { persistenceSpan.End(err, "") }()
+	if !execution.durable {
+		if err = s.store.Save(ctx, session, expectedVersion); err != nil {
+			return err
+		}
+		s.memoryAnswerMu.Lock()
+		command := s.memoryAnswers[execution.scope]
+		command.status = CommandSucceeded
+		command.result = append(json.RawMessage(nil), result...)
+		s.memoryAnswers[execution.scope] = command
+		s.memoryAnswerMu.Unlock()
+		return nil
+	}
+
+	eventPayload, err := json.Marshal(answerLifecycleEvent{
+		QuestionID:    questionID,
+		Status:        string(CommandSucceeded),
+		State:         response.State,
+		NextQuestion:  questionIDFor(response.NextQuestion),
+		AnsweredCount: response.Progress.Answered,
+	})
+	if err != nil {
+		return fmt.Errorf("encode answer event: %w", err)
+	}
+	err = s.answerCommitter.CommitAnswer(ctx, AnswerCommitSpec{
+		Session:         session,
+		ExpectedVersion: expectedVersion,
+		CommandID:       execution.commandID,
+		Result:          result,
+		Event: SessionEventSpec{
+			EventID:   s.ids.NewID("event"),
+			SessionID: session.ID,
+			CommandID: execution.commandID,
+			Type:      "answer.committed",
+			Payload:   eventPayload,
+		},
+	})
+	return err
+}
+
+func (s *Service) failAnswerExecution(ctx context.Context, execution answerExecution, questionID string, failure error) {
+	code, retryable := safeAnswerFailure(failure)
+	payload, err := json.Marshal(answerLifecycleEvent{
+		QuestionID: questionID,
+		Status:     string(CommandFailed),
+		ErrorCode:  code,
+		Retryable:  retryable,
+	})
+	if err != nil {
+		return
+	}
+	if !execution.durable {
+		s.memoryAnswerMu.Lock()
+		command, exists := s.memoryAnswers[execution.scope]
+		if exists && command.status == CommandRunning {
+			command.status = CommandFailed
+			command.result = nil
+			s.memoryAnswers[execution.scope] = command
+		}
+		s.memoryAnswerMu.Unlock()
+		return
+	}
+	writeCtx := context.WithoutCancel(ctx)
+	if _, transitionErr := s.persistence.TransitionCommand(writeCtx, execution.commandID, CommandRunning, CommandTransition{
+		Status: CommandFailed,
+		Error:  payload,
+	}); transitionErr != nil {
+		return
+	}
+	_ = s.appendAnswerEvent(writeCtx, execution, "answer.failed", answerLifecycleEvent{
+		QuestionID: questionID,
+		Status:     string(CommandFailed),
+		ErrorCode:  code,
+		Retryable:  retryable,
+	})
+}
+
+func (s *Service) replaySucceededAnswer(ctx context.Context, execution answerExecution) (*AnswerResponse, error) {
+	if !execution.durable {
+		s.memoryAnswerMu.Lock()
+		command, exists := s.memoryAnswers[execution.scope]
+		s.memoryAnswerMu.Unlock()
+		if !exists || command.status != CommandSucceeded {
+			return nil, ErrPersistenceNotFound
+		}
+		return decodeAnswerResponse(command.result)
+	}
+	command, err := s.persistence.GetCommand(ctx, execution.commandID)
+	if err != nil {
+		return nil, err
+	}
+	if command.Status != CommandSucceeded {
+		return nil, ErrPersistenceConflict
+	}
+	return decodeAnswerResponse(command.Result)
+}
+
+func (s *Service) appendAnswerEvent(
+	ctx context.Context,
+	execution answerExecution,
+	eventType string,
+	payload answerLifecycleEvent,
+) error {
+	if !execution.durable {
+		return nil
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, _, err = s.persistence.AppendSessionEvent(ctx, SessionEventSpec{
+		EventID:   s.ids.NewID("event"),
+		SessionID: execution.sessionID,
+		CommandID: execution.commandID,
+		Type:      eventType,
+		Payload:   encoded,
+	})
+	return err
+}
+
+func answerCommandError(err error) error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return conflict("clientAnswerId was already used with a different answer", err)
+	case errors.Is(err, ErrAnswerAlreadyCommitted):
+		return conflict("question already has an accepted answer", err)
+	default:
+		return &DomainError{Code: CodeInternal, Message: "could not persist answer command", Cause: err}
+	}
+}
+
+func answerRequestHash(request AnswerRequest) (string, error) {
+	payload, err := json.Marshal(struct {
+		QuestionID string        `json:"questionId"`
+		Answer     AnswerPayload `json:"answer"`
+	}{QuestionID: request.QuestionID, Answer: request.Answer})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(payload)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func decodeAnswerResponse(payload json.RawMessage) (*AnswerResponse, error) {
+	if len(payload) == 0 {
+		return nil, &DomainError{Code: CodeInternal, Message: "stored answer result is empty"}
+	}
+	var response AnswerResponse
+	if err := json.Unmarshal(payload, &response); err != nil {
+		return nil, &DomainError{Code: CodeInternal, Message: "stored answer result is invalid", Cause: err}
+	}
+	return &response, nil
+}
+
+func safeAnswerFailure(err error) (ErrorCode, bool) {
+	var domainErr *DomainError
+	if errors.As(err, &domainErr) {
+		return domainErr.Code, domainErr.Code == CodeUnavailable || domainErr.Code == CodeInternal
+	}
+	return CodeInternal, true
+}
+
+func answerCommandScope(principalID, sessionID, clientAnswerID string) string {
+	return structuredScope(principalID, sessionID, string(ActionAnswer), clientAnswerID)
+}
+
+func answerTopicScope(principalID, sessionID, questionID string) string {
+	return structuredScope(principalID, sessionID, string(ActionAnswer), questionID)
+}
+
+func answerCoordinationKey(principalID, sessionID string) string {
+	return structuredScope(principalID, sessionID)
+}
+
+func structuredScope(parts ...string) string {
+	encoded, _ := json.Marshal(parts)
+	return string(encoded)
+}
+
+func questionIDFor(question *Question) string {
+	if question == nil {
+		return ""
+	}
+	return question.ID
+}
+
+type keyedCoordinator struct {
+	mu      sync.Mutex
+	entries map[string]*coordinationEntry
+}
+
+type coordinationEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (c *keyedCoordinator) acquire(key string) func() {
+	c.mu.Lock()
+	if c.entries == nil {
+		c.entries = make(map[string]*coordinationEntry)
+	}
+	entry := c.entries[key]
+	if entry == nil {
+		entry = &coordinationEntry{}
+		c.entries[key] = entry
+	}
+	entry.refs++
+	c.mu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		c.mu.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(c.entries, key)
+		}
+		c.mu.Unlock()
+	}
 }
 
 func (s *Service) retrieveKnowledge(ctx context.Context, query KnowledgeQuery, operation string) []KnowledgeDocument {
@@ -1041,6 +1451,9 @@ func validateAnswer(request AnswerRequest) error {
 	}
 	if strings.TrimSpace(request.QuestionID) == "" {
 		return validation("questionId", "is required")
+	}
+	if strings.TrimSpace(request.ClientAnswerID) == "" {
+		return validation("clientAnswerId", "is required")
 	}
 	if strings.TrimSpace(request.Answer.Text) == "" {
 		return validation("answer.text", "is required")

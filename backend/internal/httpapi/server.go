@@ -42,20 +42,21 @@ type SpeechClient interface {
 }
 
 type Config struct {
-	Version           string
-	APIKey            string
-	RequireAuth       bool
-	AllowedOrigins    []string
-	MaxJSONBodyBytes  int64
-	MaxInterviewBytes int64
-	MaxAudioBodyBytes int64
-	MaxMessageChars   int
-	MaxTTSTextChars   int
-	ReadHeaderTimeout time.Duration
-	IdleTimeout       time.Duration
-	KnowledgeEntries  int
-	ModelConfigured   bool
-	SpeechConfigured  bool
+	Version             string
+	APIKey              string
+	RequireAuth         bool
+	AllowedOrigins      []string
+	MaxJSONBodyBytes    int64
+	MaxInterviewBytes   int64
+	MaxAudioBodyBytes   int64
+	MaxMessageChars     int
+	MaxTTSTextChars     int
+	ReadHeaderTimeout   time.Duration
+	IdleTimeout         time.Duration
+	InterviewRunTimeout time.Duration
+	KnowledgeEntries    int
+	ModelConfigured     bool
+	SpeechConfigured    bool
 }
 
 type Dependencies struct {
@@ -114,6 +115,8 @@ func New(config Config, dependencies Dependencies) (*Server, error) {
 	mux.HandleFunc("POST /api/interview", server.requireAuth(server.handleInterview))
 	mux.HandleFunc("POST /api/interview/stream", server.requireAuth(server.handleInterviewStream))
 	mux.HandleFunc("POST /api/v1/interview", server.requireAuth(server.handleInterview))
+	mux.HandleFunc("GET /api/v1/interviews/{interviewId}", server.requireAuth(server.handleInterviewSnapshot))
+	mux.HandleFunc("GET /api/v1/interviews/{interviewId}/events", server.requireAuth(server.handleInterviewEvents))
 	mux.HandleFunc("POST /api/transcribe", server.requireAuth(server.handleTranscribe))
 	mux.HandleFunc("POST /api/tts", server.requireAuth(server.handleTTS))
 	server.handler = server.withMiddleware(mux)
@@ -155,6 +158,9 @@ func withDefaults(config Config) Config {
 	}
 	if config.IdleTimeout <= 0 {
 		config.IdleTimeout = 90 * time.Second
+	}
+	if config.InterviewRunTimeout <= 0 {
+		config.InterviewRunTimeout = 5 * time.Minute
 	}
 	if len(config.AllowedOrigins) == 0 {
 		config.AllowedOrigins = []string{"http://localhost:3000", "http://127.0.0.1:3000"}
