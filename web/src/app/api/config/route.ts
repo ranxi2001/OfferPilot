@@ -21,7 +21,9 @@ interface ModelsConfig {
 const PROJECT_ROOT = process.env.OFFERPILOT_PROJECT_ROOT
   ? resolve(process.env.OFFERPILOT_PROJECT_ROOT)
   : resolve(process.cwd(), '..');
-const ENV_PATH = resolve(PROJECT_ROOT, '.env');
+const ENV_PATH = process.env.OFFERPILOT_CONFIG_PATH
+  ? resolve(process.env.OFFERPILOT_CONFIG_PATH)
+  : resolve(PROJECT_ROOT, '.env');
 const MODELS_YML_PATH = resolve(PROJECT_ROOT, 'models.yml');
 const MASK_PREFIX = '********';
 
@@ -103,7 +105,7 @@ export async function GET() {
   const env = loadEnv();
   const merged = { ...env };
   for (const [k, v] of Object.entries(process.env)) {
-    if (v && !merged[k]) merged[k] = v;
+    if (v) merged[k] = v;
   }
 
   const toResponse = (entries: ModelEntry[] | undefined) =>

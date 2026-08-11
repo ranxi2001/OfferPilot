@@ -18,7 +18,9 @@ WORKDIR /app
 COPY --from=build /out/offerpilot-api ./offerpilot-api
 COPY knowledge/ ./knowledge/
 
-RUN mkdir -p /app/data && chown -R offerpilot:offerpilot /app
+RUN mkdir -p /app/data /app/config \
+    && chown -R offerpilot:offerpilot /app \
+    && chown 1000:1000 /app/config
 USER offerpilot
 
 ENV PORT=3001

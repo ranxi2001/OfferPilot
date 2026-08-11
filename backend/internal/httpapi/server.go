@@ -42,6 +42,7 @@ type SpeechClient interface {
 }
 
 type Config struct {
+	Version           string
 	APIKey            string
 	RequireAuth       bool
 	AllowedOrigins    []string
@@ -131,6 +132,9 @@ func (s *Server) HTTPServer(address string) *http.Server {
 }
 
 func withDefaults(config Config) Config {
+	if strings.TrimSpace(config.Version) == "" {
+		config.Version = "dev"
+	}
 	if config.MaxJSONBodyBytes <= 0 {
 		config.MaxJSONBodyBytes = 256 << 10
 	}
@@ -263,6 +267,7 @@ func (s *Server) healthPayload(status string) map[string]any {
 	return map[string]any{
 		"status":           status,
 		"service":          "offerpilot-go",
+		"version":          s.config.Version,
 		"live":             true,
 		"ready":            s.config.ModelConfigured,
 		"readiness":        harnessState,

@@ -2,6 +2,8 @@
 
 [English](./README-EN.md)
 
+当前版本：`v0.2.0` · [版本记录](./CHANGELOG.md) · [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)
+
 OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。主后端使用 Go 实现 typed Agent Harness，不依赖 LangChain / LangGraph；Next.js 负责 Web/BFF 与文档解析，Node.js 24 继续承载前端和旧 CLI。
 
 项目同时也是 `zero2Agent` 学习体系的实战项目：把教程里的 Agent 工程知识、面试题库和架构拆解落地成可运行系统。
@@ -32,7 +34,7 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 
 导出的示例报告见：[demo.md](./assets/demo.md)。
 
-## 今日更新记录
+## v0.2.0 更新
 
 - Go 成为主 HTTP/Harness 后端；旧 TypeScript API 通过 `npm run serve:legacy` 保留为回滚入口。
 - 模拟面试支持上传、粘贴或抓取 JD 与简历，并可选择知识拷打、项目深挖或混合模式。
@@ -100,6 +102,7 @@ src/                  旧 TypeScript CLI/API，迁移期间保留
 ```
 
 完整设计与迁移约束见 [Agent Harness 与 Go 后端架构](./docs/agent-harness-architecture.md)。
+下一阶段的优先级、验收指标和发布门禁见 [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)。
 
 ## 模型与音频配置
 

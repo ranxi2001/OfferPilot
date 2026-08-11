@@ -94,25 +94,34 @@ async function startServer(): Promise<TestServer> {
   child.stderr.on('data', (chunk) => output.push(String(chunk)));
 
   const baseUrl = `http://127.0.0.1:${port}`;
-  await waitForHealth(baseUrl, child, () => output.join(''));
-
-  return { baseUrl, child, tempDir, dbPath, output: () => output.join('') };
+  const server = { baseUrl, child, tempDir, dbPath, output: () => output.join('') };
+  try {
+    await waitForHealth(baseUrl, child, server.output);
+    return server;
+  } catch (error) {
+    await stopServer(server);
+    throw error;
+  }
 }
 
 async function stopServer(server: TestServer): Promise<void> {
   if (server.child.exitCode === null) {
     server.child.kill('SIGTERM');
-    await Promise.race([
-      once(server.child, 'exit'),
-      sleep(5000).then(() => {
-        if (server.child.exitCode === null) {
-          server.child.kill('SIGKILL');
-        }
-      }),
-    ]);
+    if (!(await waitForExit(server.child, 5000)) && server.child.exitCode === null) {
+      server.child.kill('SIGKILL');
+      await waitForExit(server.child, 2000);
+    }
   }
 
-  rmSync(server.tempDir, { recursive: true, force: true });
+  rmSync(server.tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
+
+async function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null) return true;
+  return Promise.race([
+    once(child, 'exit').then(() => true),
+    sleep(timeoutMs).then(() => false),
+  ]);
 }
 
 async function waitForHealth(

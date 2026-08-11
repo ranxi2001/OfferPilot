@@ -33,16 +33,26 @@ Optional:
   defaults to `4`.
 - `OFFERPILOT_INTERVIEWER_TIMEOUT`, `OFFERPILOT_ASSESSOR_TIMEOUT`,
   `OFFERPILOT_REPORTER_TIMEOUT`, `OFFERPILOT_PLANNER_TIMEOUT`: wall-clock
-  limits for each typed Agent. Defaults are `90s`, `120s`, `90s`, and `90s`.
+  limits for each typed Agent. Defaults are `90s`, `180s`, `90s`, and `90s`.
 - `OPENAI_TIMEOUT`: per-provider request attempt; defaults to `90s`.
 - `OFFERPILOT_MAX_INTERVIEW_BODY_BYTES`: combined extracted JD/resume JSON
   limit; defaults to 2 MiB.
 - `OFFERPILOT_ENABLE_CONFIG_API`: Next.js model-config editor; keep disabled
   for public deployments.
+- `OFFERPILOT_CONFIG_PATH`: writable config-editor target. Compose uses the
+  persistent `/app/config/.env`; the API mounts this shared file read-only.
+  Saved values are loaded on API startup only when the corresponding process
+  variable is empty. After an editor-only change, run
+  `docker compose restart api`. A non-empty value from the host `.env` takes
+  precedence; edit or remove that host value and run
+  `docker compose up -d --force-recreate api web` to
+  change the effective process environment.
 - `OFFERPILOT_HEALTH_TIMEOUT_MS`: Next.js timeout while checking the Go API.
 
 Provider credentials stay in server environment variables. Never expose them
-through browser bundles or client-side configuration.
+through browser bundles or client-side configuration. Compose passes provider
+settings to both server processes so the Web config API can report the effective
+model with masked secrets; none of these variables use the `NEXT_PUBLIC_` prefix.
 
 `POST /api/interview/stream` returns newline-delimited JSON. Trace lines contain
 only fixed stage labels, statuses, aggregate counts, Agent IDs, and durations;
@@ -81,6 +91,7 @@ A healthy, fully configured API reports the dynamically parsed knowledge count:
 {
   "status": "ready",
   "service": "offerpilot-go",
+  "version": "0.2.0",
   "live": true,
   "ready": true,
   "readiness": "ready",
@@ -106,11 +117,17 @@ docker compose up --build -d
 ```
 
 The API image is a multi-stage Go build. The Web image uses Node.js 24. Compose
-waits for the Go health check before starting Web traffic.
+waits for the Go health check before starting Web traffic. The Web container
+runs as the image's unprivileged `node` user. The API host port binds to
+`127.0.0.1` by default; change `OFFERPILOT_API_BIND` only when direct remote API
+access is intentional and protected.
 
 ## Data And Recovery
 
 - The `app-data` volume stores `/app/data/offerpilot.db`.
+- The `app-config` volume stores the config editor's `.env` in plaintext. Keep
+  config writes disabled for public deployments and protect this volume with
+  host permissions, disk encryption, and restricted backups.
 - Interview writes use optimistic versions, so two answers for the same active
   question cannot both commit.
 - The Markdown knowledge index is rebuilt from the mounted/image content at
@@ -127,6 +144,8 @@ npm run build
 npm run test:go
 npx vitest run tests/unit tests/e2e
 npm --prefix web run build
+npm audit --audit-level=high --registry=https://registry.npmjs.org
+npm --prefix web audit --audit-level=high --registry=https://registry.npmjs.org
 git diff --check
 ```
 

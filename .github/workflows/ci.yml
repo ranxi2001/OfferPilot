@@ -31,6 +31,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit dependencies
+        run: npm audit --audit-level=high --registry=https://registry.npmjs.org
+
       - name: Type check
         run: npx tsc --noEmit
 
@@ -73,6 +76,10 @@ jobs:
         working-directory: web
         run: npm ci
 
+      - name: Audit web dependencies
+        working-directory: web
+        run: npm audit --audit-level=high --registry=https://registry.npmjs.org
+
       - name: Build web app
         working-directory: web
         run: npm run build
@@ -87,6 +94,63 @@ jobs:
 
       - name: Build Web image
         run: docker build -f web/Dockerfile -t offerpilot-web:test .
+
+      - name: Verify image users, shared config, and API readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_id=""
+          web_id=""
+          config_volume="offerpilot-config-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() {
+            if [ -n "$api_id" ]; then docker rm --force "$api_id" >/dev/null 2>&1 || true; fi
+            if [ -n "$web_id" ]; then docker rm --force "$web_id" >/dev/null 2>&1 || true; fi
+            docker volume rm --force "$config_volume" >/dev/null 2>&1 || true
+          }
+          wait_for_url() {
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent "$1" >/dev/null; then return 0; fi
+              sleep 1
+            done
+            return 1
+          }
+          trap cleanup EXIT
+
+          test "$(docker image inspect offerpilot-api:test --format '{{.Config.User}}')" = "offerpilot"
+          test "$(docker image inspect offerpilot-web:test --format '{{.Config.User}}')" = "node"
+          test "$(docker run --rm --entrypoint id offerpilot-api:test -u)" != "0"
+          test "$(docker run --rm --entrypoint id offerpilot-web:test -u)" = "1000"
+
+          docker volume create "$config_volume" >/dev/null
+          docker run --rm --volume "$config_volume:/app/config:ro" --entrypoint /usr/bin/true offerpilot-api:test
+          web_id=$(docker run --detach --rm --publish 127.0.0.1:3000:3000 \
+            --env OFFERPILOT_ENABLE_CONFIG_API=true \
+            --env OPENAI_API_KEY=ci-process-key \
+            --env OPENAI_MODEL=ci-process-model \
+            --env OPENAI_BASE_URL=https://process.example.invalid/v1 \
+            --volume "$config_volume:/app/config" offerpilot-web:test)
+          if ! wait_for_url http://127.0.0.1:3000/api/config; then
+            docker logs "$web_id"
+            exit 1
+          fi
+          config_response=$(curl --fail --silent http://127.0.0.1:3000/api/config)
+          [[ "$config_response" == *"ci-process-model"* ]]
+          [[ "$config_response" != *"ci-process-key"* ]]
+          curl --fail --silent --show-error --request POST \
+            --header 'content-type: application/json' \
+            --data '{"envVars":{"OPENAI_API_KEY":"ci-volume-key","OPENAI_MODEL":"ci-model","OPENAI_BASE_URL":"https://example.invalid/v1"}}' \
+            http://127.0.0.1:3000/api/config | grep --quiet '"ok":true'
+          docker stop "$web_id" >/dev/null
+          web_id=""
+
+          api_id=$(docker run --detach --rm --publish 127.0.0.1:3001:3001 \
+            --env OFFERPILOT_CONFIG_PATH=/app/config/.env \
+            --volume "$config_volume:/app/config:ro" offerpilot-api:test)
+          if ! wait_for_url http://127.0.0.1:3001/health/ready; then
+            docker logs "$api_id"
+            exit 1
+          fi
+          curl --fail --silent http://127.0.0.1:3001/health/ready | grep --quiet '"version":"0.2.0"'
 
   lint:
     runs-on: ubuntu-latest

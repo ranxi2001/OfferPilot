@@ -21,7 +21,7 @@ const (
 	PlannerAgentID     = "coverage_planner"
 
 	defaultInterviewerTimeout = 90 * time.Second
-	defaultAssessorTimeout    = 120 * time.Second
+	defaultAssessorTimeout    = 180 * time.Second
 	defaultReporterTimeout    = 90 * time.Second
 	defaultPlannerTimeout     = 90 * time.Second
 )

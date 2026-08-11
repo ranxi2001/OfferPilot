@@ -212,7 +212,7 @@ func TestInterviewAgentTimeoutDefaultsEnvironmentAndCompatibleConstructor(t *tes
 		t.Setenv(key, "")
 	}
 	defaults := InterviewAgentOptionsFromEnv()
-	if defaults.InterviewerTimeout != 90*time.Second || defaults.AssessorTimeout != 120*time.Second ||
+	if defaults.InterviewerTimeout != 90*time.Second || defaults.AssessorTimeout != 180*time.Second ||
 		defaults.ReporterTimeout != 90*time.Second || defaults.PlannerTimeout != 90*time.Second {
 		t.Fatalf("default timeouts = %#v", defaults)
 	}

@@ -1,5 +1,7 @@
 # OfferPilot
 
+Current release: `v0.2.0` · [Changelog](./CHANGELOG.md) · [v0.3.0 roadmap](./docs/v0.3.0-optimization-plan.md)
+
 OfferPilot is an AI interview diagnosis agent for AI Agent / LLM engineering interviews. Its primary backend is a typed Agent Harness written in Go, not a LangChain / LangGraph wrapper. Next.js owns the Web/BFF and document extraction, while Node.js 24 remains the frontend and legacy CLI runtime.
 
 It supports text diagnosis, resume/JD analysis, multi-provider LLM routing, sub-agent execution, streaming Web UI, and voice answer diagnosis with ASR.
@@ -19,9 +21,9 @@ The Web UI supports recording or uploading an audio answer, transcribing it with
 
 ![Voice diagnosis demo](./assets/demo1.png)
 
-### Thought Process Card
+### Auditable Execution Trace
 
-Audio handling is shown as a dedicated process card instead of being rendered as a duplicate user message. The card tracks transcription, diagnosis status, transcript, audio playback, and recording download.
+Audio and mock-interview work is shown as a dedicated execution timeline instead of being rendered as duplicate chat messages. It preserves queued, running, completed, and failed steps with durations and safe decision summaries. Private model reasoning, prompts, JD/resume bodies, and knowledge reference answers are intentionally excluded.
 
 ![Thought process card](./assets/cot.png)
 
@@ -33,7 +35,7 @@ Assistant answers render GitHub-Flavored Markdown, including tables. Each diagno
 
 An exported sample report is available in [demo.md](./assets/demo.md).
 
-## What Changed Today
+## v0.2.0 Changes
 
 - Made Go the primary HTTP and Harness backend; `npm run serve:legacy` keeps the TypeScript API as a rollback path.
 - Added JD and resume upload/paste/URL input with knowledge, project, and mixed interview modes.
@@ -80,7 +82,7 @@ An exported sample report is available in [demo.md](./assets/demo.md).
 | Adaptive mock interview | JD + resume evidence, semantic assessment, dynamic follow-up, report | Done |
 | Realtime interview | TTS question, text/WAV answer, per-turn feedback | Done |
 | Multi-agent runtime | Specialist sub-agents with concurrency pool | Done |
-| Knowledge search | SQLite FTS5 + optional embeddings | Done |
+| Knowledge search | Atomic Markdown question blocks + in-memory BM25 | Done |
 
 ## Architecture
 
@@ -99,6 +101,7 @@ src/                   legacy TypeScript CLI/API during migration
 ```
 
 See [Agent Harness and Go backend architecture](./docs/agent-harness-architecture.md) for the full design.
+See the [v0.3.0 optimization plan](./docs/v0.3.0-optimization-plan.md) for prioritized work, acceptance metrics, and release gates.
 
 ## Model And Audio Configuration
 

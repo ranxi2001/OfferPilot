@@ -1,6 +1,7 @@
 import './env.js';
 import { Command } from 'commander';
 import { createInterface } from 'node:readline';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { createApp } from './app.js';
@@ -9,11 +10,14 @@ import { parseKnowledgeDir, OpenAIEmbeddingProvider } from './knowledge/index.js
 import { KnowledgeSearch } from './knowledge/search.js';
 
 const program = new Command();
+const packageMetadata = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+) as { version: string };
 
 program
   .name('interview-agent')
   .description('面试诊断 Agent —— AI Agent 面试辅导系统')
-  .version('0.1.0');
+  .version(packageMetadata.version);
 
 program
   .command('start')

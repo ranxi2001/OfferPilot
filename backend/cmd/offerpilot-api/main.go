@@ -119,6 +119,7 @@ func main() {
 	})
 	authRequired := strings.EqualFold(os.Getenv("NODE_ENV"), "production") || boolEnv("OFFERPILOT_REQUIRE_AUTH", false)
 	api, err := httpapi.New(httpapi.Config{
+		Version:           config.Version,
 		APIKey:            os.Getenv("OFFERPILOT_API_KEY"),
 		RequireAuth:       authRequired,
 		AllowedOrigins:    csvEnv("OFFERPILOT_ALLOWED_ORIGINS", []string{"http://localhost:3000", "http://127.0.0.1:3000"}),
@@ -147,6 +148,7 @@ func main() {
 	errChannel := make(chan error, 1)
 	go func() {
 		logger.Info("OfferPilot Go API started",
+			"version", config.Version,
 			"port", port,
 			"knowledge_entries", index.Len(),
 			"knowledge_directory", knowledgeDirectory,

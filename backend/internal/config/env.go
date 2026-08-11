@@ -9,9 +9,26 @@ import (
 	"strings"
 )
 
-// LoadDotEnv loads the first .env file found in the working directory or one
-// of its parents. Existing process environment variables always win.
+// LoadDotEnv loads OFFERPILOT_CONFIG_PATH when configured, otherwise the first
+// .env file found in the working directory or one of its parents. Non-empty
+// process environment variables always win.
 func LoadDotEnv() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("OFFERPILOT_CONFIG_PATH")); configured != "" {
+		path, err := filepath.Abs(configured)
+		if err != nil {
+			return "", fmt.Errorf("config: resolve %s: %w", configured, err)
+		}
+		if _, statErr := os.Stat(path); errors.Is(statErr, os.ErrNotExist) {
+			return "", nil
+		} else if statErr != nil {
+			return "", fmt.Errorf("config: stat %s: %w", path, statErr)
+		}
+		if err := loadEnvFile(path); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+
 	workingDirectory, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("config: get working directory: %w", err)
@@ -48,7 +65,7 @@ func loadEnvFile(path string) error {
 		if !ok {
 			continue
 		}
-		if _, exists := os.LookupEnv(key); exists {
+		if existing, exists := os.LookupEnv(key); exists && strings.TrimSpace(existing) != "" {
 			continue
 		}
 		if err := os.Setenv(key, value); err != nil {

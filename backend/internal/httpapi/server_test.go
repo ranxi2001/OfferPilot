@@ -34,7 +34,7 @@ func (s *interviewStub) Report(context.Context, interview.ReportRequest) (interv
 
 func TestHealthExposesRuntimeReadinessWithoutAuthentication(t *testing.T) {
 	server := newTestServer(t, Config{
-		APIKey: "secret", RequireAuth: true, KnowledgeEntries: 403, ModelConfigured: true,
+		Version: "0.2.0", APIKey: "secret", RequireAuth: true, KnowledgeEntries: 403, ModelConfigured: true,
 	}, &interviewStub{})
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	response := httptest.NewRecorder()
@@ -47,7 +47,7 @@ func TestHealthExposesRuntimeReadinessWithoutAuthentication(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload["service"] != "offerpilot-go" || payload["knowledgeEntries"] != float64(403) || payload["harness"] != "ready" || payload["readiness"] != "ready" || payload["live"] != true || payload["ready"] != true {
+	if payload["service"] != "offerpilot-go" || payload["version"] != "0.2.0" || payload["knowledgeEntries"] != float64(403) || payload["harness"] != "ready" || payload["readiness"] != "ready" || payload["live"] != true || payload["ready"] != true {
 		t.Fatalf("unexpected health payload: %#v", payload)
 	}
 	readiness := httptest.NewRecorder()

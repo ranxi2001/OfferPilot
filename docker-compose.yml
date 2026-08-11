@@ -2,7 +2,7 @@ services:
   api:
     build: .
     ports:
-      - "3001:3001"
+      - "${OFFERPILOT_API_BIND:-127.0.0.1}:${OFFERPILOT_API_PORT:-3001}:3001"
     environment:
       - PORT=3001
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -23,11 +23,13 @@ services:
       - OFFERPILOT_ALLOWED_ORIGINS=${OFFERPILOT_ALLOWED_ORIGINS:-http://localhost:3000}
       - OFFERPILOT_MAX_INTERVIEW_BODY_BYTES=${OFFERPILOT_MAX_INTERVIEW_BODY_BYTES:-2097152}
       - OFFERPILOT_HARNESS_MAX_CONCURRENT=${OFFERPILOT_HARNESS_MAX_CONCURRENT:-4}
+      - OFFERPILOT_CONFIG_PATH=/app/config/.env
       - DB_PATH=/app/data/offerpilot.db
       - KNOWLEDGE_DIR=/app/knowledge
       - LOG_LEVEL=info
     volumes:
       - app-data:/app/data
+      - app-config:/app/config:ro
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:3001/health/ready >/dev/null"]
       interval: 30s
@@ -45,9 +47,29 @@ services:
     environment:
       - BACKEND_URL=http://api:3001
       - OFFERPILOT_API_KEY=${OFFERPILOT_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - OPENAI_TTS_MODEL=${OPENAI_TTS_MODEL}
+      - OPENAI_ASR_MODEL=${OPENAI_ASR_MODEL}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL}
+      - MIMO_API_KEY=${MIMO_API_KEY}
+      - MIMO_BASE_URL=${MIMO_BASE_URL}
+      - MIMO_ASR_MODEL=${MIMO_ASR_MODEL}
+      - MIMO_TTS_MODEL=${MIMO_TTS_MODEL}
+      - MIMO_TTS_VOICE=${MIMO_TTS_VOICE:-alloy}
+      - MIMO_ASR_LANGUAGE=${MIMO_ASR_LANGUAGE:-auto}
       - OFFERPILOT_PROJECT_ROOT=/app
+      - OFFERPILOT_CONFIG_PATH=/app/config/.env
       - OFFERPILOT_ENABLE_CONFIG_API=${OFFERPILOT_ENABLE_CONFIG_API:-false}
       - OFFERPILOT_HEALTH_TIMEOUT_MS=${OFFERPILOT_HEALTH_TIMEOUT_MS:-3000}
+    volumes:
+      - app-config:/app/config
     depends_on:
       api:
         condition: service_healthy
@@ -61,3 +83,4 @@ services:
 
 volumes:
   app-data:
+  app-config:
