@@ -4,6 +4,104 @@
 [Semantic Versioning](https://semver.org/)，在 `1.0.0` 之前仍可能调整 API，
 但持久化数据变更必须提供向前迁移和回滚说明。
 
+## [0.3.0-alpha.1] - 2026-08-11
+
+这是 `0.3.0` 质量与故障语义工作流的首个 Alpha。它用于验证新的证据边界、
+Profile 契约、Answer 幂等语义和持久化基础，不代表 `0.3.0` GA 的全部恢复、
+模型质量和部署门禁已经完成。
+
+### Added
+
+- 新增 `backend/internal/profile` 类型化 Profile 契约。JD 与简历事实按原文锚点
+  提取，每个事实必须携带可解析的 `EvidenceRef`；确定性提取器与可选 Agent
+  提取端口共享同一套 grounding 校验。
+- 面试规划开始消费类型化 Profile，用岗位必备项、职责、技术主题、项目、个人
+  责任和量化指标生成覆盖点，不再只依赖松散文本标签。
+- 新增逐题知识检索：检索 query 同时考虑当前覆盖点、上一题和上一轮差距，每道
+  问题固定自己的 evidence bundle，Assessor 只能读取该题绑定的私有参考。
+- SQLite schema 升级到版本 3，新增 durable command、追加事件、模型 invocation、
+  checkpoint、run lease 和 outbox 表及其唯一约束和恢复查询接口。
+- Answer 请求新增稳定的 `clientAnswerId`。幂等作用域固定为
+  `(principal, interview, action, clientAnswerId)`，相同 ID 与相同 payload 可复用
+  已提交结果；相同 ID 改写 payload 或用不同 ID 重答已提交问题会返回冲突。
+- 新增公开 session snapshot 与事件元数据 API。Web 可在同一标签页刷新后恢复 Profile、
+  当前问题、历史轮次、反馈和进度；执行轨迹按字段白名单写入有界
+  `sessionStorage`，不保存答案、材料、Prompt 或私有推理。
+- 新增可重复、离线且不调用 provider 的 Eval Harness，并接入 CI。内置
+  `v0.3.0-alpha.1` corpus 包含 30 个案例、90 道全局唯一问题，覆盖知识、项目、
+  混合三种模式和 junior、mid、senior 全部 9 种组合。
+
+### Changed
+
+- 知识检索从“会话开始时一次 top-K”调整为“每个覆盖点、每轮重新绑定”，并移除
+  Assessor 从会话头部补入无关知识锚点的路径。
+- Profile 事实采用 extractive Alpha 契约：字段值必须能在其引用原文中找到；无法
+  绑定证据的推断不会进入事实字段。
+- Answer 的 snapshot、command result 和 `answer.committed` 事件使用同一个 SQLite
+  事务提交，避免只写入部分状态。
+- NDJSON 请求读取完成后改用独立的五分钟有界 context 执行。浏览器断开只停止
+  实时投递，不取消已经开始的 Go Harness run；刷新恢复会按安全事件游标等待终态。
+- CI 现在同时断言根项目、Web lockfile、Go 运行版本和容器 readiness 返回的版本
+  均为 `0.3.0-alpha.1`。
+
+### Security
+
+- Interviewer 和 Assessor 的知识上下文缩小到当前问题绑定的证据集合，降低跨主题
+  参考答案进入下一题、评估或公开投影的风险。
+- Profile 校验拒绝未知 source、anchor、locator、quote 和无法由 quote 支撑的事实。
+- 离线 Eval 扫描问题及公开文本中的标准/案例私有 marker；finding 只输出 marker
+  的 SHA-256 短指纹，不回显私有内容。
+
+### Migration
+
+- 首次用本版本启动 Go API 时，会在事务内把面试 SQLite schema 从版本 1 依次迁移
+  到版本 3。版本 2 新建执行账本表；版本 3 重建 command 表，把幂等唯一键扩展到
+  principal、session 和 action 维度。
+- 版本 1 的 `interview_sessions` snapshot 保持可读写；已有版本 2 command 会保留
+  ID、request hash、状态、结果和错误，并以空 `principal_id` 迁入版本 3。
+- 升级前必须停止写流量并对 `DB_PATH` 指向的数据库做一致性备份。Docker 部署需
+  备份 `app-data` volume；文件部署应把数据库及存在的 `-wal`、`-shm` 文件作为同一
+  组处理，或使用 SQLite 在线备份机制。
+- 本版本没有新增必填环境变量，也没有改变 npm 依赖图；两个 lockfile 的变化仅为
+  根包版本元数据。
+
+### Rollback
+
+- migration 是 forward-only，不提供自动 down migration。不要手工删除 migration
+  记录、账本表或 command 列。
+- 需要回滚时，先停止 Alpha 写流量，另行保留当前数据库以便排障，再恢复升级前的
+  一致性备份并部署不可变的 `v0.2.0` artifact。
+- 恢复升级前备份会舍弃 Alpha 窗口内的新会话和新答案。没有备份时，直接让
+  `v0.2.0` 写入 schema v3 数据库不属于本版本验证或支持的回滚路径。
+
+### Verification
+
+- 离线 Eval 在固定 corpus 上通过：30/30 案例、90/90 问题证据有效，121/121
+  evidence reference 可解析，重复问题为 0，三种模式、三个职级和 9 个组合覆盖率
+  均为 100%，120 个公开扫描字段的 privacy marker 命中为 0。
+- schema 迁移测试覆盖 v1 snapshot 到 v3 的保持与后续写入，以及已发布 v2 command
+  到 v3 幂等作用域的迁移。
+- Answer 针对性测试覆盖 20 个相同并发提交只执行一次 Assessor、turn 和下一题，
+  同键失败重试、冲突语义，以及事件写入失败时 snapshot 与 command 整体回滚。
+- 完整候选版命令、证据边界和未覆盖项见
+  [v0.3.0-alpha.1 发布验证](./docs/v0.3.0-alpha.1-release-verification.md)。
+
+### Known Limitations
+
+- 离线 Eval 验证结构、覆盖、证据引用、重复题和已知 privacy marker，不评价真实
+  模型的问题相关性、深挖强度、事实正确性或延迟；真实 provider 重复运行和人工
+  双盲评审仍是后续 Beta/RC 门禁。
+- durable command/event/invocation/checkpoint/lease/outbox 是恢复基础。本 Alpha 已支持
+  同标签页 snapshot 与有界安全轨迹恢复，但不承诺跨设备轨迹同步、跨进程 durable
+  worker 接管、完整 event-sourced 重建或 SSE `Last-Event-ID` 重放。
+- 用户可见执行轨迹只包含安全步骤、状态、耗时和决策摘要；不会展示模型私有原始
+  思维链、Prompt、知识参考答案或 JD/简历正文。
+- Profile 的生产默认路径仍是确定性、extractive 提取；语义 Profile Agent 的质量
+  标注集和 F1 门禁尚未完成。
+- 知识召回仍使用 BM25；混合检索、向量召回和 reranker 不在本 Alpha 中。
+- SQLite 数据仍是单机、未加密的 session snapshot，没有账号/tenant 隔离、UI 删除
+  和自动保留策略。
+
 ## [0.2.0] - 2026-08-11
 
 ### Added
@@ -82,4 +180,5 @@
 
 下一版本计划见 [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)。
 
+[0.3.0-alpha.1]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0-alpha.1
 [0.2.0]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.2.0

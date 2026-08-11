@@ -91,7 +91,7 @@ A healthy, fully configured API reports the dynamically parsed knowledge count:
 {
   "status": "ready",
   "service": "offerpilot-go",
-  "version": "0.2.0",
+  "version": "0.3.0-alpha.1",
   "live": true,
   "ready": true,
   "readiness": "ready",

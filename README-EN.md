@@ -1,6 +1,6 @@
 # OfferPilot
 
-Current release: `v0.2.0` · [Changelog](./CHANGELOG.md) · [v0.3.0 roadmap](./docs/v0.3.0-optimization-plan.md)
+Current release: `v0.3.0-alpha.1` · [Changelog](./CHANGELOG.md) · [Alpha verification](./docs/v0.3.0-alpha.1-release-verification.md) · [v0.3.0 roadmap](./docs/v0.3.0-optimization-plan.md)
 
 OfferPilot is an AI interview diagnosis agent for AI Agent / LLM engineering interviews. Its primary backend is a typed Agent Harness written in Go, not a LangChain / LangGraph wrapper. Next.js owns the Web/BFF and document extraction, while Node.js 24 remains the frontend and legacy CLI runtime.
 
@@ -34,6 +34,19 @@ Assistant answers render GitHub-Flavored Markdown, including tables. Each diagno
 ![Markdown diagnosis demo](./assets/demo2.png)
 
 An exported sample report is available in [demo.md](./assets/demo.md).
+
+## v0.3.0-alpha.1 Changes
+
+- Added grounded typed Profile extraction for JD requirements, responsibilities, resume projects, ownership, and metrics.
+- Scoped knowledge retrieval and private evidence independently for every interview question.
+- Added stable browser `clientAnswerId` values and atomic SQLite answer commits. Identical retries replay one result; changed payloads and second answers conflict instead of being scored twice.
+- Added durable command, event, model invocation, checkpoint, lease, and outbox persistence foundations with schema v3 migration.
+- Added a deterministic CI Eval Harness with 30 cases, 90 globally unique questions, 121/121 valid evidence references, full mode/seniority matrix coverage, and zero known privacy-marker hits in 120 public fields.
+- Detached bounded Go Harness runs from browser stream cancellation and added public session snapshot/event metadata recovery endpoints.
+- This is an Alpha. Persistent SSE `Last-Event-ID` replay, stale worker takeover, production model quality studies, and complete server-side UI trace reconstruction remain future work.
+- User-visible timelines contain safe execution facts and decision summaries, never private model chain-of-thought, prompts, reference answers, or raw JD/resume content.
+
+See [Alpha release verification](./docs/v0.3.0-alpha.1-release-verification.md) before migrating or rolling back a deployment.
 
 ## v0.2.0 Changes
 

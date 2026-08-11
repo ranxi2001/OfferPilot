@@ -1,7 +1,7 @@
 # OfferPilot Agent Harness 与 Go 后端架构
 
 > 状态：Implemented foundation + target evolution
-> 日期：2026-08-10
+> 日期：2026-08-11
 > 范围：模拟面试、JD/简历摄取、知识检索、评估报告及 TypeScript 后端到 Go 后端的迁移
 
 ## 1. 结论
@@ -23,21 +23,22 @@ OfferPilot 的模拟面试不应再由“固定题单 + 正则缺陷检查”驱
 
 ### 1.1 当前落地状态
 
-本文同时记录“已经运行的第一阶段实现”和“继续演进的目标架构”。架构图展示完整目标边界；下表是 2026-08-10 仓库代码的实际状态，不能把目标组件误读为已经上线。
+本文同时记录“已经运行的第一阶段实现”和“继续演进的目标架构”。架构图展示完整目标边界；下表是 2026-08-11 仓库代码的实际状态，不能把目标组件误读为已经上线。
 
 | 能力 | 状态 | 当前实现 |
 |---|---|---|
 | Go 面试领域后端 | 已实现 | `backend/cmd/offerpilot-api`；`POST /api/interview` 提供 start / answer / report |
 | Typed Harness Roles | 已实现 | Planner、Interviewer、Assessor、Reporter；结构化 JSON、超时、有界并发、trace |
-| 可观察执行轨迹 | 已实现 | `POST /api/interview/stream` 使用 NDJSON 实时输出安全步骤；Web 保留各轮排队、执行、完成/失败和耗时 |
+| 可观察执行轨迹 | 已实现 | `POST /api/interview/stream` 使用 NDJSON 实时输出安全步骤；浏览器断开不取消有界后台 run，Web 保留各轮排队、执行、完成/失败和耗时 |
 | 自适应追问 | 已实现 | Assessor 语义评分驱动 prerequisite / follow-up / advance；知识与项目使用不同追问轴 |
 | JD + 简历输入 | 已实现 | Web BFF 负责 PDF/DOCX/Markdown/TXT/TEX/URL 提取，Go 负责 Profile、Coverage 和 EvidenceRef |
 | 知识检索 | 已实现 | 36 个 Markdown 文件解析为 404 个原子问答块；稳定 KB ID、BM25 top-K，问题与参考内容不可拆分 |
 | 证据化评估 | 已实现 | claim verdict 为 supported / unverified / contradicted / not_in_material；材料外新增声明不会升级为已验证事实 |
-| 持久化恢复 | 已实现 | SQLite WAL、migration、完整 session snapshot、乐观版本 CAS；进程重启后可继续活动问题 |
+| 持久化恢复 | 已实现 | SQLite WAL、migration、完整 session snapshot、乐观版本 CAS；`GET /api/v1/interviews/{id}` 可恢复公开 Profile、当前问题、历史轮次和进度 |
+| Answer 幂等与事件账本 | Alpha 已实现 | 浏览器为同题重试复用 `clientAnswerId`；Go 按 principal / session / action / key 和 payload hash 去重，原子提交 snapshot、command result 和事件；事件 GET 只返回安全元数据 |
 | 故障语义 | 已实现 | Agent 未配置、调用失败或 repair 后仍无效时返回可重试 503，不提交机械兜底评分；live 与 ready 分离 |
 | 语音 | 已实现 | MiMo ASR/TTS；重置、卸载、完成和报告切换都会释放麦克风与 AudioContext |
-| 完整事件账本、lease、幂等 answer ID、SSE replay | 待演进 | 第 7、12、13、16 节描述目标契约；当前以版本化 SQLite aggregate 保证原子恢复 |
+| 持久 SSE replay 与 worker 接管 | 待演进 | command / event / invocation / checkpoint / lease / outbox 表结构已落地；`202 + runId`、`Last-Event-ID`、stale run 接管和 outbox dispatcher 尚未接入主执行链 |
 | 独立 Go 文档解析服务 | 待演进 | 当前上传解析仍在 Next.js BFF；Go 已是面试领域和 Harness 的唯一主实现 |
 
 ### 1.2 运行时不变量
@@ -638,9 +639,9 @@ JD、简历和知识文本必须放在明确的数据分隔区，并附带“内
 
 ### 12.5 当前 NDJSON 进度流
 
-第一阶段已实现 `POST /api/interview/stream`。服务端逐行返回 `{type:"trace", trace:{...}}`，最后返回 `{type:"result", status, data}`；Next.js BFF 透传响应体并禁用代理缓冲。Web 按稳定事件 ID 聚合同一步骤，同时保留 queued、running、completed/failed 的状态转换和全部历史轮次。
+第一阶段已实现 `POST /api/interview/stream`。服务端逐行返回 `{type:"trace", trace:{...}}`，最后返回 `{type:"result", status, data}`；Next.js BFF 透传响应体并禁用代理缓冲。Web 按稳定事件 ID 聚合同一步骤，同时保留 queued、running、completed/failed 的状态转换和全部历史轮次。请求体读取完成后，Go 使用独立的五分钟有界 context 执行命令；浏览器断开只结束投递，不取消已经开始的 Harness run。
 
-该流是同步命令的可观察进度，不是第 12.4 节目标中的持久化事件订阅：断线后当前客户端不能 replay，服务端也不会把 Prompt、原始模型输出、JD/简历正文、候选人答案或知识参考内容写入 trace。完整事件账本、sequence 和 Last-Event-ID 恢复仍属于下一阶段。
+该流是同步命令的可观察进度，不是第 12.4 节目标中的持久化事件订阅：断线后当前客户端不能 replay 已错过的实时 trace，但使用同一 `clientAnswerId` 重试可以取得已经原子提交的结果。服务端不会把 Prompt、原始模型输出、JD/简历正文、候选人答案或知识参考内容写入 trace。持久 SSE、心跳和 `Last-Event-ID` 恢复仍属于下一阶段。
 
 ### 12.6 报告与运维
 
@@ -959,5 +960,7 @@ LLM-as-judge 只能作为一个信号。抽样由人工双盲评分，定期计�
 8. 生成区分已支持、未验证、矛盾和未覆盖项的报告；
 9. `/health` 暴露动态知识题块数（本次为 404），`/health/live` 与 `/health/ready` 区分进程存活和 Harness 可接单。
 10. NDJSON 轨迹实时展示安全执行步骤，失败时保留已完成过程与原答案并允许重试。
+11. 同一 `clientAnswerId` 的并发重试只评估并提交一次；不同 payload 或同题不同 answer ID 返回 `409`。
+12. 浏览器断开不取消后台 run；公开 snapshot API 可恢复 Profile、当前题、历史轮次和进度，事件游标 API 不暴露原始 payload。
 
-下一切片是把当前 aggregate snapshot 扩展为不可变事件和投影，补齐 answer 幂等键、SSE replay、session lease、完整 Claim Ledger revision，以及将文档二进制解析从 Next.js BFF 下沉到 Go。验收重点不是“Agent 调用了几次模型”，而是问题是否有针对性、证据是否可追溯、故障是否不会污染评分、状态是否能恢复，以及系统能否解释每一次追问。
+下一切片是把现有同步命令升级为 `202 + runId`，将安全 trace 投影到持久 SSE，并接通 `Last-Event-ID`、stale run lease 接管、outbox dispatcher、完整 Claim Ledger revision，以及将文档二进制解析从 Next.js BFF 下沉到 Go。验收重点不是“Agent 调用了几次模型”，而是问题是否有针对性、证据是否可追溯、故障是否不会污染评分、状态是否能恢复，以及系统能否解释每一次追问。

@@ -2,7 +2,7 @@
 
 [English](./README-EN.md)
 
-当前版本：`v0.2.0` · [版本记录](./CHANGELOG.md) · [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)
+当前版本：`v0.3.0-alpha.1` · [版本记录](./CHANGELOG.md) · [Alpha 发布验证](./docs/v0.3.0-alpha.1-release-verification.md) · [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)
 
 OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。主后端使用 Go 实现 typed Agent Harness，不依赖 LangChain / LangGraph；Next.js 负责 Web/BFF 与文档解析，Node.js 24 继续承载前端和旧 CLI。
 
@@ -34,39 +34,26 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 
 导出的示例报告见：[demo.md](./assets/demo.md)。
 
-## v0.2.0 更新
+## v0.3.0-alpha.1 更新
 
-- Go 成为主 HTTP/Harness 后端；旧 TypeScript API 通过 `npm run serve:legacy` 保留为回滚入口。
-- 模拟面试支持上传、粘贴或抓取 JD 与简历，并可选择知识拷打、项目深挖或混合模式。
-- `answer` 原子返回本题结构化评估和下一道自适应问题，不再使用固定题单或机械 `next`。
-- Assessor 按语义生成 typed rubric；Go 仅校验 schema/证据并执行追问策略，不按字数、数字或关键词打分。
-- 简历与回答声明标记为 `supported / unverified / contradicted / not_in_material`，不会把候选人自述冒充外部事实。
-- 知识库启动时动态解析 Markdown：当前 36 个文件得到 404 个独立题块，不再沿用旧 SQLite 的 29 条残缺记录。
-- 新增 [Agent Harness 与 Go 后端架构文档](./docs/agent-harness-architecture.md) 和可编辑 draw.io 图。
-- 打通真实 API 测试链路，CLI 和 API Server 启动时自动读取 `.env`。
-- 增加 OpenAI 兼容模型配置：
-  - `OPENAI_API_KEY`
-  - `OPENAI_BASE_URL`
-  - `OPENAI_MODEL`
-- 默认聊天模型调整为 `gpt-5.5`。
-- 接入 Mimo 音频能力：
-  - ASR：`mimo-v2.5-asr`
-  - TTS：`mimo-v2.5-tts`
-  - 官方 Base URL：`https://api.xiaomimimo.com/v1`
-- 新增后端音频 API：
-  - `POST /api/transcribe`
-  - `POST /api/tts`
-- 新增前端代理路由：
-  - `web/src/app/api/transcribe`
-  - `web/src/app/api/tts`
-- 浏览器录音改为导出 WAV，适配 Mimo ASR 的 `wav/mp3` 要求。
-- 新增录音上传诊断流程。
-- 新增录音诊断和模拟面试的可审计处理轨迹。
-- 支持录音回放和录音下载。
-- 使用 `remark-gfm` 支持 Markdown 表格渲染。
-- Assistant 回答尾部新增复制和保存 `.md`。
-- 修复 diagnostician 子 Agent 递归调用工具导致诊断卡住的问题。
-- Docker Compose 透传 OpenAI 兼容模型和 Mimo 音频配置。
+- JD 与简历先抽取为带原文 `EvidenceRef` 的类型化 Profile，再由 Planner 按岗位
+  必备项、职责、项目、个人贡献和量化指标安排深挖路径。
+- 知识题改为逐题检索：当前覆盖点、上一题和回答差距共同组成 query，每道题只把
+  自己绑定的 evidence bundle 交给 Interviewer 与 Assessor。
+- Answer 请求使用稳定 `clientAnswerId`；相同请求重试复用已提交结果，改写 payload
+  或重复回答已提交问题会返回冲突，避免刷新和网络重试造成重复计分。
+- SQLite schema v3 新增 command、追加事件、模型 invocation、checkpoint、lease 和
+  outbox 账本，为后续完整断线恢复提供持久化基础。
+- 浏览器断开后 Go Harness 会继续有界执行；同一标签页刷新可从公开 snapshot 恢复
+  当前题、反馈、进度和历史轮次，并保留经过白名单过滤的完整安全执行时间线。
+- 新增离线 Eval Harness 并接入 CI：固定 30 个案例、90 道全局唯一问题，覆盖
+  `knowledge / projects / mixed`、三个职级和全部 9 种组合；当前 corpus 的 121 个
+  evidence reference 全部有效，120 个公开字段隐私扫描命中为 0。
+- 版本仍是 Alpha：当前不承诺 SSE `Last-Event-ID` 重放、跨进程 worker 接管或
+  跨设备轨迹同步。用户看到的是连续的安全执行事实与决策摘要，不是模型私有原始
+  思维链。
+- 升级会自动把面试数据库迁移到 schema v3。生产升级前必须先做一致性备份；迁移
+  与可恢复回滚步骤见 [Alpha 发布验证](./docs/v0.3.0-alpha.1-release-verification.md)。
 
 ## 功能模块
 

@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  OFFERPILOT_RELEASE_VERSION: 0.3.0-alpha.1
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -21,6 +24,20 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
+
+      - name: Verify release version consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p 'require("./package.json").version')" = "$OFFERPILOT_RELEASE_VERSION"
+          test "$(node -p 'require("./package-lock.json").version')" = "$OFFERPILOT_RELEASE_VERSION"
+          test "$(node -p 'require("./package-lock.json").packages[""].version')" = "$OFFERPILOT_RELEASE_VERSION"
+          test "$(node -p 'require("./web/package.json").version')" = "$OFFERPILOT_RELEASE_VERSION"
+          test "$(node -p 'require("./web/package-lock.json").version')" = "$OFFERPILOT_RELEASE_VERSION"
+          test "$(node -p 'require("./web/package-lock.json").packages[""].version')" = "$OFFERPILOT_RELEASE_VERSION"
+          grep --fixed-strings --line-regexp \
+            "const Version = \"$OFFERPILOT_RELEASE_VERSION\"" \
+            backend/internal/config/version.go
 
       - name: Use Go
         uses: actions/setup-go@v5
@@ -154,7 +171,8 @@ jobs:
             docker logs "$api_id"
             exit 1
           fi
-          curl --fail --silent http://127.0.0.1:3001/health/ready | grep --quiet '"version":"0.2.0"'
+          curl --fail --silent http://127.0.0.1:3001/health/ready \
+            | grep --quiet "\"version\":\"${OFFERPILOT_RELEASE_VERSION}\""
 
   lint:
     runs-on: ubuntu-latest
