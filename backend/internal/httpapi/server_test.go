@@ -3,12 +3,14 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"offerpilot/backend/internal/interview"
+	"offerpilot/backend/internal/speech"
 )
 
 type interviewStub struct {
@@ -17,6 +19,18 @@ type interviewStub struct {
 	answer       interview.AnswerResponse
 	report       interview.ReportResponse
 	err          error
+}
+
+type failingSpeechStub struct {
+	err error
+}
+
+func (s *failingSpeechStub) Transcribe(context.Context, speech.TranscribeInput) (string, error) {
+	return "", s.err
+}
+
+func (s *failingSpeechStub) Synthesize(context.Context, speech.SynthesizeInput) (speech.Audio, error) {
+	return speech.Audio{}, s.err
 }
 
 func (s *interviewStub) Start(_ context.Context, request interview.StartRequest) (interview.StartResponse, error) {
@@ -118,6 +132,102 @@ func TestProtectedRouteRequiresBearerAndRejectsUnknownOrigin(t *testing.T) {
 	server.Handler().ServeHTTP(forbidden, request)
 	if forbidden.Code != http.StatusForbidden {
 		t.Fatalf("forbidden status = %d", forbidden.Code)
+	}
+}
+
+func TestTranscribeHidesProviderFailureDetails(t *testing.T) {
+	server, err := New(Config{}, Dependencies{
+		Interview: &interviewStub{},
+		Speech: &failingSpeechStub{err: errors.New(
+			`Post "https://provider.example/v1/chat/completions?api-key=secret": EOF`,
+		)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/transcribe", strings.NewReader("wav"))
+	request.Header.Set("Content-Type", "audio/wav")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Error     string `json:"error"`
+		Retryable bool   `json:"retryable"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Error != "语音识别服务暂时不可用，请重试" {
+		t.Fatalf("error = %q", payload.Error)
+	}
+	if !payload.Retryable {
+		t.Fatal("expected unknown provider failure to remain retryable")
+	}
+	for _, forbidden := range []string{"provider.example", "api-key", "secret", "EOF"} {
+		if strings.Contains(response.Body.String(), forbidden) {
+			t.Fatalf("response leaks %q: %s", forbidden, response.Body.String())
+		}
+	}
+}
+
+func TestTranscribeReturnsNonRetryableUnsupportedAudio(t *testing.T) {
+	speechClient, err := speech.New(speech.Config{APIKey: "secret"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(Config{}, Dependencies{Interview: &interviewStub{}, Speech: speechClient})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/transcribe", strings.NewReader("webm"))
+	request.Header.Set("Content-Type", "audio/webm")
+	request.Header.Set("X-File-Name", "answer.webm")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	assertTranscriptionFailure(t, response, http.StatusUnsupportedMediaType, false)
+}
+
+func TestTranscribeReturnsNonRetryableEmptyTranscript(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"text":""}`))
+	}))
+	defer provider.Close()
+	speechClient, err := speech.New(speech.Config{APIKey: "secret", BaseURL: provider.URL}, provider.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(Config{}, Dependencies{Interview: &interviewStub{}, Speech: speechClient})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/transcribe", strings.NewReader("wav"))
+	request.Header.Set("Content-Type", "audio/wav")
+	request.Header.Set("X-File-Name", "answer.wav")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	assertTranscriptionFailure(t, response, http.StatusUnprocessableEntity, false)
+}
+
+func assertTranscriptionFailure(t *testing.T, response *httptest.ResponseRecorder, status int, retryable bool) {
+	t.Helper()
+	if response.Code != status {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Error     string `json:"error"`
+		Retryable bool   `json:"retryable"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Error == "" || payload.Retryable != retryable {
+		t.Fatalf("payload = %+v", payload)
 	}
 }
 

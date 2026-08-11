@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -19,7 +20,59 @@ const (
 	defaultTTSModel = "mimo-v2.5-tts"
 	defaultVoice    = "mimo_default"
 	maxResponseSize = 32 << 20
+	asrMaxAttempts  = 3
+	asrRetryDelay   = 100 * time.Millisecond
 )
+
+var (
+	errProviderUnavailable = errors.New("speech provider is temporarily unavailable")
+	errProviderRejected    = errors.New("speech provider rejected the request")
+	errInvalidResponse     = errors.New("speech provider returned an invalid response")
+	errAudioRequired       = errors.New("audio is required")
+	errUnsupportedAudio    = errors.New("unsupported audio format")
+	errEmptyTranscript     = errors.New("empty transcript")
+)
+
+type providerRejectedError struct {
+	status int
+}
+
+func (e *providerRejectedError) Error() string {
+	return errProviderRejected.Error()
+}
+
+func (e *providerRejectedError) Unwrap() error {
+	return errProviderRejected
+}
+
+type TranscriptionFailure struct {
+	Status    int
+	Message   string
+	Retryable bool
+}
+
+func ClassifyTranscriptionError(err error) TranscriptionFailure {
+	switch {
+	case errors.Is(err, errAudioRequired):
+		return TranscriptionFailure{Status: http.StatusBadRequest, Message: "没有收到录音，请重新录制"}
+	case errors.Is(err, errUnsupportedAudio):
+		return TranscriptionFailure{Status: http.StatusUnsupportedMediaType, Message: "当前录音格式无法识别，请重新录制"}
+	case errors.Is(err, errEmptyTranscript):
+		return TranscriptionFailure{Status: http.StatusUnprocessableEntity, Message: "未识别到有效语音，请重新录制"}
+	case errors.Is(err, errProviderRejected):
+		var rejected *providerRejectedError
+		if errors.As(err, &rejected) && (rejected.status == http.StatusUnauthorized || rejected.status == http.StatusForbidden) {
+			return TranscriptionFailure{Status: http.StatusServiceUnavailable, Message: "语音识别服务配置异常，请联系管理员"}
+		}
+		return TranscriptionFailure{Status: http.StatusUnprocessableEntity, Message: "录音无法被语音服务处理，请重新录制"}
+	case errors.Is(err, errProviderUnavailable):
+		return TranscriptionFailure{Status: http.StatusServiceUnavailable, Message: "语音识别服务暂时不可用，请重试", Retryable: true}
+	case errors.Is(err, errInvalidResponse):
+		return TranscriptionFailure{Status: http.StatusBadGateway, Message: "语音识别服务响应异常，请重试", Retryable: true}
+	default:
+		return TranscriptionFailure{Status: http.StatusBadGateway, Message: "语音识别服务暂时不可用，请重试", Retryable: true}
+	}
+}
 
 type Config struct {
 	APIKey      string
@@ -32,8 +85,10 @@ type Config struct {
 }
 
 type Client struct {
-	config Config
-	http   *http.Client
+	config        Config
+	http          *http.Client
+	retryAttempts int
+	retryDelay    time.Duration
 }
 
 type TranscribeInput struct {
@@ -80,16 +135,21 @@ func New(config Config, httpClient *http.Client) (*Client, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: config.Timeout}
 	}
-	return &Client{config: config, http: httpClient}, nil
+	return &Client{
+		config:        config,
+		http:          httpClient,
+		retryAttempts: asrMaxAttempts,
+		retryDelay:    asrRetryDelay,
+	}, nil
 }
 
 func (c *Client) Transcribe(ctx context.Context, input TranscribeInput) (string, error) {
 	if len(input.Audio) == 0 {
-		return "", errors.New("speech: audio is required")
+		return "", errAudioRequired
 	}
 	mime, ok := normalizedAudioMIME(input.ContentType, input.FileName)
 	if !ok {
-		return "", errors.New("speech: MiMo ASR supports only WAV or MP3 audio")
+		return "", errUnsupportedAudio
 	}
 	payload := map[string]any{
 		"model": c.config.ASRModel,
@@ -113,7 +173,7 @@ func (c *Client) Transcribe(ctx context.Context, input TranscribeInput) (string,
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := c.post(ctx, payload, &result); err != nil {
+	if err := c.postWithRetry(ctx, payload, &result); err != nil {
 		return "", fmt.Errorf("speech: MiMo ASR: %w", err)
 	}
 	text := strings.TrimSpace(result.Text)
@@ -121,7 +181,7 @@ func (c *Client) Transcribe(ctx context.Context, input TranscribeInput) (string,
 		text = extractText(result.Choices[0].Message.Content)
 	}
 	if text == "" {
-		return "", errors.New("speech: MiMo ASR returned an empty transcript")
+		return "", errEmptyTranscript
 	}
 	return text, nil
 }
@@ -181,9 +241,49 @@ func (c *Client) post(ctx context.Context, payload any, output any) error {
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}
+	_, err = c.postOnce(ctx, body, output)
+	return err
+}
+
+// ASR is read-only, so transient failures can be retried safely. TTS continues
+// to use post directly because generating the same audio twice may incur a
+// duplicate provider-side operation.
+func (c *Client) postWithRetry(ctx context.Context, payload any, output any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("encode request: %w", err)
+	}
+	attempts := c.retryAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	delay := c.retryDelay
+	if delay < 0 {
+		delay = 0
+	}
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		retryable, requestErr := c.postOnce(ctx, body, output)
+		if requestErr == nil {
+			return nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if !retryable || attempt == attempts {
+			return requestErr
+		}
+		if err := waitForRetry(ctx, delay*time.Duration(1<<(attempt-1))); err != nil {
+			return err
+		}
+	}
+	return errProviderUnavailable
+}
+
+func (c *Client) postOnce(ctx context.Context, body []byte, output any) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.config.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return false, errors.New("create speech provider request")
 	}
 	req.Header.Set("api-key", c.config.APIKey)
 	req.Header.Set("Authorization", "Bearer "+c.config.APIKey)
@@ -191,23 +291,77 @@ func (c *Client) post(ctx context.Context, payload any, output any) error {
 
 	response, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("request: %w", err)
+		if response != nil && response.Body != nil {
+			_ = response.Body.Close()
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
+		return isRetryableTransportError(err), errProviderUnavailable
 	}
-	defer response.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseSize+1))
+	data, err := readAndClose(response.Body)
 	if err != nil {
-		return fmt.Errorf("read response: %w", err)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
+		if isRetryableTransportError(err) {
+			return true, errProviderUnavailable
+		}
+		return false, errInvalidResponse
 	}
 	if len(data) > maxResponseSize {
-		return errors.New("response exceeds 32 MiB")
+		return false, errInvalidResponse
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d: %s", response.StatusCode, compact(string(data), 2000))
+		if response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= http.StatusInternalServerError {
+			return true, errProviderUnavailable
+		}
+		return false, &providerRejectedError{status: response.StatusCode}
 	}
 	if err := json.Unmarshal(data, output); err != nil {
-		return fmt.Errorf("decode response: %w", err)
+		return false, errInvalidResponse
 	}
-	return nil
+	return false, nil
+}
+
+func readAndClose(body io.ReadCloser) ([]byte, error) {
+	defer body.Close()
+	return io.ReadAll(io.LimitReader(body, maxResponseSize+1))
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func isRetryableTransportError(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && (networkError.Timeout() || networkError.Temporary()) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "connection reset") ||
+		strings.Contains(message, "forcibly closed") ||
+		strings.Contains(message, "broken pipe") ||
+		strings.Contains(message, "server closed idle connection") ||
+		strings.Contains(message, "server sent goaway")
 }
 
 func normalizedAudioMIME(contentType, fileName string) (string, bool) {
@@ -239,12 +393,4 @@ func extractText(raw json.RawMessage) string {
 		result.WriteString(part.Text)
 	}
 	return strings.TrimSpace(result.String())
-}
-
-func compact(value string, limit int) string {
-	value = strings.Join(strings.Fields(value), " ")
-	if len(value) <= limit {
-		return value
-	}
-	return value[:limit] + "..."
 }

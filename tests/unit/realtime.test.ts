@@ -1,7 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { DefectAnalyzer } from '../../src/realtime/defect-analyzer';
+import { synthesizeSpeech } from '../../src/realtime/mimo-audio';
 import { RealtimeInterviewSession } from '../../src/realtime/session-manager';
 import { TTSEngine } from '../../src/realtime/tts';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 describe('DefectAnalyzer', () => {
   const analyzer = new DefectAnalyzer();
@@ -94,5 +100,25 @@ describe('TTSEngine', () => {
     const engine = new TTSEngine({ provider: 'openai-tts' });
     const output = await engine.synthesize('hello');
     expect(output.audioUrl).toContain('/api/tts/openai');
+  });
+});
+
+describe('MiMo speech synthesis', () => {
+  it('uses the MiMo default voice when the caller does not provide one', async () => {
+    vi.stubEnv('MIMO_API_KEY', 'test-key');
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { audio: { voice: string } };
+      expect(body.audio.voice).toBe('mimo_default');
+      return new Response(JSON.stringify({
+        choices: [{ message: { audio: { data: Buffer.from('audio').toString('base64') } } }],
+      }), { headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const output = await synthesizeSpeech({ text: '下一题', format: 'mp3' });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(output.audio.toString()).toBe('audio');
+    expect(output.contentType).toBe('audio/mp3');
   });
 });

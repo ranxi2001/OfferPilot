@@ -22,7 +22,7 @@ export interface SynthesizeSpeechOutput {
 const DEFAULT_BASE_URL = 'https://api.xiaomimimo.com/v1';
 const DEFAULT_ASR_MODEL = 'mimo-v2.5-asr';
 const DEFAULT_TTS_MODEL = 'mimo-v2.5-tts';
-const DEFAULT_TTS_VOICE = 'alloy';
+const DEFAULT_TTS_VOICE = 'mimo_default';
 
 function getConfig() {
   const apiKey = process.env.MIMO_API_KEY;

@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { ExecutionTimeline } from '@/components/ExecutionTimeline';
 import { MaterialInput } from '@/components/MaterialInput';
-import { reusableAnswerSubmission } from '@/lib/answer-submission';
+import { AnswerSubmissionGuard, reusableAnswerSubmission } from '@/lib/answer-submission';
 import {
   clearClientAnswerDescriptor,
   getOrCreateClientAnswerId,
@@ -57,6 +57,11 @@ import {
   type QuestionSpeechController,
   type QuestionSpeechPhase,
 } from '@/lib/question-speech';
+import {
+  VoiceAnswerRecordingCache,
+  VoiceTranscriptionError,
+  voiceTranscriptionErrorMessage,
+} from '@/lib/voice-answer-recording';
 import type {
   AnswerInterviewRequest,
   CandidateProfile,
@@ -78,7 +83,6 @@ type Phase = 'setup' | 'questioning' | 'feedback' | 'report';
 type FailedOperation = InterviewAction | null;
 
 interface ReleaseRecordingOptions {
-  abortTranscription?: boolean;
   clearAnswerTimer?: boolean;
   clearSamples?: boolean;
   updateState?: boolean;
@@ -125,6 +129,7 @@ export function InterviewView() {
   const [error, setError] = useState<string | null>(null);
   const [speechPhase, setSpeechPhase] = useState<QuestionSpeechPhase>('idle');
   const [isRecording, setIsRecording] = useState(false);
+  const [canRetryTranscription, setCanRetryTranscription] = useState(false);
   const [executionRuns, setExecutionRuns] = useState<InterviewExecutionRun[]>([]);
   const [failedOperation, setFailedOperation] = useState<FailedOperation>(null);
 
@@ -136,7 +141,9 @@ export function InterviewView() {
   const samplesRef = useRef<Float32Array[]>([]);
   const sampleRateRef = useRef(16000);
   const recordingGenerationRef = useRef(0);
-  const transcriptionAbortRef = useRef<AbortController | null>(null);
+  const transcriptionAttemptRef = useRef(0);
+  const voiceRecordingCacheRef = useRef(new VoiceAnswerRecordingCache());
+  const answerSubmissionGuardRef = useRef(new AnswerSubmissionGuard());
   const mountedRef = useRef(false);
   const executionSequenceRef = useRef(0);
   const clientAnswerRef = useRef<ClientAnswerDescriptor | null>(null);
@@ -168,17 +175,12 @@ export function InterviewView() {
 
   const releaseRecordingResources = useCallback((options: ReleaseRecordingOptions = {}) => {
     const {
-      abortTranscription = true,
       clearAnswerTimer = true,
       clearSamples = true,
       updateState = true,
     } = options;
 
     recordingGenerationRef.current += 1;
-    if (abortTranscription) {
-      transcriptionAbortRef.current?.abort();
-      transcriptionAbortRef.current = null;
-    }
 
     const processor = processorRef.current;
     processorRef.current = null;
@@ -212,6 +214,12 @@ export function InterviewView() {
     if (updateState && mountedRef.current) setIsRecording(false);
   }, []);
 
+  const clearCachedVoiceRecording = useCallback((updateState = true) => {
+    transcriptionAttemptRef.current += 1;
+    voiceRecordingCacheRef.current.clear();
+    if (updateState && mountedRef.current) setCanRetryTranscription(false);
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     const questionSpeech = createBrowserQuestionSpeechController(({ phase: nextPhase }) => {
@@ -222,9 +230,11 @@ export function InterviewView() {
       mountedRef.current = false;
       questionSpeechRef.current = null;
       questionSpeech.dispose();
+      answerSubmissionGuardRef.current.invalidate();
+      clearCachedVoiceRecording(false);
       releaseRecordingResources({ updateState: false });
     };
-  }, [releaseRecordingResources]);
+  }, [clearCachedVoiceRecording, releaseRecordingResources]);
 
   useEffect(() => {
     const storage = answerStorage();
@@ -417,6 +427,8 @@ export function InterviewView() {
       setError('项目深挖模式需要先上传或粘贴简历。');
       return;
     }
+    answerSubmissionGuardRef.current.invalidate();
+    clearCachedVoiceRecording();
     const previousInterviewId = readClientAnswerDescriptor(answerStorage())?.interviewId;
 
     setBusy(true);
@@ -459,7 +471,6 @@ export function InterviewView() {
     text: string,
     inputMode: 'text' | 'voice' = 'text',
     durationMs = Math.max(0, Date.now() - answerStartedAt.current),
-    signal?: AbortSignal,
   ) {
     if (!interviewId || !question || !text.trim() || busy) return;
     const submitted = text.trim();
@@ -478,6 +489,7 @@ export function InterviewView() {
     setBusy(true);
     setBusyLabel('正在检索证据、核对事实并规划追问');
     setError(null);
+    setCanRetryTranscription(false);
     setFailedOperation(null);
     const request: AnswerInterviewRequest = reusable ?? {
       action: 'answer',
@@ -491,13 +503,19 @@ export function InterviewView() {
       },
     };
     pendingAnswerRef.current = request;
+    const submissionGeneration = answerSubmissionGuardRef.current.begin();
+    const isCurrentSubmission = () => mountedRef.current
+      && answerSubmissionGuardRef.current.isCurrent(submissionGeneration);
     const runId = beginExecution('answer', `第 ${question.index} 轮回答评估`);
     try {
-      const data = await interviewClient.answer(request, (trace) => recordExecutionTrace(runId, trace));
-      if (!mountedRef.current || signal?.aborted) return;
+      const data = await interviewClient.answer(request, (trace) => {
+        if (isCurrentSubmission()) recordExecutionTrace(runId, trace);
+      });
+      if (!isCurrentSubmission()) return;
       completeExecution(runId);
       pendingAnswerRef.current = null;
-      releaseRecordingResources({ abortTranscription: false });
+      clearCachedVoiceRecording();
+      releaseRecordingResources();
       setFeedback(data.feedback);
       setPendingQuestion(data.nextQuestion);
       setProgress(data.progress);
@@ -505,12 +523,12 @@ export function InterviewView() {
       setAnswer('');
       setPhase('feedback');
     } catch (err) {
-      if (mountedRef.current && !signal?.aborted) {
+      if (isCurrentSubmission()) {
         setAnswer(submitted);
         handleExecutionError(err, 'answer', runId);
       }
     } finally {
-      if (mountedRef.current && !signal?.aborted) {
+      if (isCurrentSubmission()) {
         setBusy(false);
         setBusyLabel('');
       }
@@ -522,6 +540,7 @@ export function InterviewView() {
       void loadReport();
       return;
     }
+    clearCachedVoiceRecording();
     const nextQuestion = pendingQuestion;
     pendingAnswerRef.current = null;
     setQuestion(nextQuestion);
@@ -535,6 +554,7 @@ export function InterviewView() {
 
   async function loadReport() {
     if (!interviewId || busy) return;
+    clearCachedVoiceRecording();
     releaseRecordingResources();
     stopQuestionSpeech();
     setBusy(true);
@@ -559,6 +579,8 @@ export function InterviewView() {
   }
 
   function resetInterview() {
+    answerSubmissionGuardRef.current.invalidate();
+    clearCachedVoiceRecording();
     releaseRecordingResources();
     stopQuestionSpeech();
     if (interviewId) {
@@ -579,6 +601,8 @@ export function InterviewView() {
     setTurns([]);
     setReport(null);
     setError(null);
+    setBusy(false);
+    setBusyLabel('');
     setExecutionRuns([]);
     setFailedOperation(null);
   }
@@ -626,6 +650,7 @@ export function InterviewView() {
       };
       source.connect(processor);
       processor.connect(audioContext.destination);
+      clearCachedVoiceRecording();
       setIsRecording(true);
       setError(null);
     } catch (err) {
@@ -640,36 +665,60 @@ export function InterviewView() {
     const chunks = samplesRef.current;
     const sourceRate = sampleRateRef.current;
     const durationMs = Math.max(0, Date.now() - answerStartedAt.current);
-    releaseRecordingResources({ abortTranscription: false });
+    const activeInterviewId = interviewId;
+    const activeQuestionId = question?.id;
+    const wav = encodeWav(chunks, sourceRate);
+    releaseRecordingResources({ clearAnswerTimer: false });
+    if (!activeInterviewId || !activeQuestionId) return;
 
-    const controller = new AbortController();
-    transcriptionAbortRef.current?.abort();
-    transcriptionAbortRef.current = controller;
+    voiceRecordingCacheRef.current.cache(wav, durationMs, activeInterviewId, activeQuestionId);
+    setCanRetryTranscription(false);
+    await analyzeCachedVoiceRecording();
+  }
+
+  async function analyzeCachedVoiceRecording() {
+    const activeInterviewId = interviewId;
+    const activeQuestionId = question?.id;
+    if (!activeInterviewId || !activeQuestionId) return;
+    const recording = voiceRecordingCacheRef.current.currentFor(activeInterviewId, activeQuestionId);
+    if (!recording) {
+      setCanRetryTranscription(false);
+      setError('录音缓存已失效，请重新录音。');
+      return;
+    }
+
+    const attempt = transcriptionAttemptRef.current + 1;
+    transcriptionAttemptRef.current = attempt;
     setBusy(true);
     setBusyLabel('正在转写回答');
+    setError(null);
+    setFailedOperation(null);
+    setCanRetryTranscription(false);
     try {
-      const wav = encodeWav(chunks, sourceRate);
-      const response = await fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'audio/wav', 'X-File-Name': 'interview.wav' },
-        body: wav,
-        signal: controller.signal,
-      });
-      const data = await response.json() as { text?: string; error?: string };
-      if (!response.ok || !data.text) throw new Error(data.error || '转写失败');
-      if (!mountedRef.current || controller.signal.aborted) return;
+      const result = await voiceRecordingCacheRef.current.transcribe(activeInterviewId, activeQuestionId);
+      if (!result
+        || !mountedRef.current
+        || transcriptionAttemptRef.current !== attempt
+        || !voiceRecordingCacheRef.current.isCurrent(recording)) return;
       setBusy(false);
       setBusyLabel('');
-      await submitAnswer(data.text, 'voice', durationMs, controller.signal);
+      await submitAnswer(result.text, 'voice', result.recording.durationMs);
     } catch (err) {
-      if (mountedRef.current && !controller.signal.aborted) {
-        setError((err as Error).message);
+      if (!mountedRef.current
+        || transcriptionAttemptRef.current !== attempt
+        || !voiceRecordingCacheRef.current.isCurrent(recording)) return;
+      const reason = voiceTranscriptionErrorMessage(err);
+      const retryable = err instanceof VoiceTranscriptionError && err.retryable;
+      setError(retryable
+        ? `语音转写失败：${reason}。录音已保留，无需重新回答。`
+        : `语音转写失败：${reason}`);
+      setCanRetryTranscription(retryable);
+    } finally {
+      if (mountedRef.current
+        && transcriptionAttemptRef.current === attempt
+        && voiceRecordingCacheRef.current.isCurrent(recording)) {
         setBusy(false);
         setBusyLabel('');
-      }
-    } finally {
-      if (transcriptionAbortRef.current === controller) {
-        transcriptionAbortRef.current = null;
       }
     }
   }
@@ -810,7 +859,10 @@ export function InterviewView() {
           error={error}
           busy={busy}
           label={busyLabel}
-          onRetry={failedOperation ? retryFailedOperation : undefined}
+          onRetry={canRetryTranscription
+            ? () => void analyzeCachedVoiceRecording()
+            : failedOperation ? retryFailedOperation : undefined}
+          retryLabel={canRetryTranscription ? '重新分析录音' : undefined}
         />
         <ExecutionTimeline runs={executionRuns} />
 
@@ -859,7 +911,7 @@ export function InterviewView() {
                     }`}
                   >
                     {isRecording ? <Square size={14} /> : <Mic size={14} />}
-                    {isRecording ? '停止并提交' : '语音回答'}
+                    {isRecording ? '停止并分析' : '语音回答'}
                   </button>
                   <button
                     type="button"
@@ -997,11 +1049,13 @@ function StatusMessage({
   busy,
   label,
   onRetry,
+  retryLabel = '重试本步',
 }: {
   error: string | null;
   busy: boolean;
   label: string;
   onRetry?: () => void;
+  retryLabel?: string;
 }) {
   if (!error && !busy) return null;
   return (
@@ -1017,7 +1071,7 @@ function StatusMessage({
           className="flex h-7 shrink-0 items-center gap-1 rounded border border-red-200 bg-white px-2.5 text-[11px] font-semibold text-red-700 hover:bg-red-100"
         >
           <RotateCcw size={11} />
-          重试本步
+          {retryLabel}
         </button>
       )}
     </div>

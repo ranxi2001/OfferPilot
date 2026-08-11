@@ -366,7 +366,9 @@ func (s *Server) handleChat(response http.ResponseWriter, request *http.Request)
 
 func (s *Server) handleTranscribe(response http.ResponseWriter, request *http.Request) {
 	if s.speech == nil {
-		writeLegacyError(response, http.StatusServiceUnavailable, "Speech model is not configured")
+		writeJSON(response, http.StatusServiceUnavailable, map[string]any{
+			"error": "语音识别服务尚未配置，请联系管理员", "retryable": false,
+		})
 		return
 	}
 	audio, err := readBody(response, request, s.config.MaxAudioBodyBytes)
@@ -383,7 +385,13 @@ func (s *Server) handleTranscribe(response http.ResponseWriter, request *http.Re
 	})
 	if err != nil {
 		s.logger.Warn("transcribe failed", "error", err.Error())
-		writeLegacyError(response, http.StatusBadGateway, err.Error())
+		if request.Context().Err() != nil {
+			return
+		}
+		failure := speech.ClassifyTranscriptionError(err)
+		writeJSON(response, failure.Status, map[string]any{
+			"error": failure.Message, "retryable": failure.Retryable,
+		})
 		return
 	}
 	writeJSON(response, http.StatusOK, map[string]string{"text": text})

@@ -1,8 +1,40 @@
 import { describe, expect, it } from 'vitest';
-import { reusableAnswerSubmission } from '../../web/src/lib/answer-submission.js';
+import {
+  AnswerSubmissionGuard,
+  reusableAnswerSubmission,
+} from '../../web/src/lib/answer-submission.js';
 import type { AnswerInterviewRequest } from '../../web/src/types/interview.js';
 
 describe('answer submission retry', () => {
+  it('ignores a delayed answer result after the interview is reset', async () => {
+    const guard = new AnswerSubmissionGuard();
+    const generation = guard.begin();
+    let release!: () => void;
+    const delayedResult = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let phase = 'questioning';
+
+    const applyResult = delayedResult.then(() => {
+      if (guard.isCurrent(generation)) phase = 'feedback';
+    });
+    guard.invalidate();
+    phase = 'setup';
+    release();
+    await applyResult;
+
+    expect(phase).toBe('setup');
+  });
+
+  it('lets only the latest answer submission update the view', () => {
+    const guard = new AnswerSubmissionGuard();
+    const first = guard.begin();
+    const latest = guard.begin();
+
+    expect(guard.isCurrent(first)).toBe(false);
+    expect(guard.isCurrent(latest)).toBe(true);
+  });
+
   it('reuses the exact voice payload and duration for an unchanged retry', () => {
     const pending: AnswerInterviewRequest = {
       action: 'answer',
