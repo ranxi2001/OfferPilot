@@ -52,6 +52,11 @@ import {
   writeInterviewEventSequence,
 } from '@/lib/interview-recovery';
 import { failExecutionInRuns, mergeTraceIntoRuns } from '@/lib/execution-trace';
+import {
+  createBrowserQuestionSpeechController,
+  type QuestionSpeechController,
+  type QuestionSpeechPhase,
+} from '@/lib/question-speech';
 import type {
   AnswerInterviewRequest,
   CandidateProfile,
@@ -118,7 +123,7 @@ export function InterviewView() {
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speechPhase, setSpeechPhase] = useState<QuestionSpeechPhase>('idle');
   const [isRecording, setIsRecording] = useState(false);
   const [executionRuns, setExecutionRuns] = useState<InterviewExecutionRun[]>([]);
   const [failedOperation, setFailedOperation] = useState<FailedOperation>(null);
@@ -136,6 +141,7 @@ export function InterviewView() {
   const executionSequenceRef = useRef(0);
   const clientAnswerRef = useRef<ClientAnswerDescriptor | null>(null);
   const pendingAnswerRef = useRef<AnswerInterviewRequest | null>(null);
+  const questionSpeechRef = useRef<QuestionSpeechController | null>(null);
 
   function answerStorage(): ClientAnswerStorage | null {
     try {
@@ -208,10 +214,15 @@ export function InterviewView() {
 
   useEffect(() => {
     mountedRef.current = true;
+    const questionSpeech = createBrowserQuestionSpeechController(({ phase: nextPhase }) => {
+      if (mountedRef.current) setSpeechPhase(nextPhase);
+    });
+    questionSpeechRef.current = questionSpeech;
     return () => {
       mountedRef.current = false;
+      questionSpeechRef.current = null;
+      questionSpeech.dispose();
       releaseRecordingResources({ updateState: false });
-      window.speechSynthesis?.cancel();
     };
   }, [releaseRecordingResources]);
 
@@ -463,6 +474,7 @@ export function InterviewView() {
       setFailedOperation('answer');
       return;
     }
+    stopQuestionSpeech();
     setBusy(true);
     setBusyLabel('正在检索证据、核对事实并规划追问');
     setError(null);
@@ -524,8 +536,7 @@ export function InterviewView() {
   async function loadReport() {
     if (!interviewId || busy) return;
     releaseRecordingResources();
-    window.speechSynthesis?.cancel();
-    setIsSpeaking(false);
+    stopQuestionSpeech();
     setBusy(true);
     setBusyLabel('正在生成证据化面试报告');
     setError(null);
@@ -549,7 +560,7 @@ export function InterviewView() {
 
   function resetInterview() {
     releaseRecordingResources();
-    window.speechSynthesis?.cancel();
+    stopQuestionSpeech();
     if (interviewId) {
       clearExecutionHistory(answerStorage(), interviewId);
       clearInterviewEventSequence(answerStorage(), interviewId);
@@ -557,7 +568,6 @@ export function InterviewView() {
     clientAnswerRef.current = null;
     pendingAnswerRef.current = null;
     clearClientAnswerDescriptor(answerStorage());
-    setIsSpeaking(false);
     setPhase('setup');
     setInterviewId(null);
     setProfile(null);
@@ -574,18 +584,25 @@ export function InterviewView() {
   }
 
   function speakQuestion(text: string) {
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'zh-CN';
-    utterance.rate = 0.92;
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
+    void questionSpeechRef.current?.speak(text);
+  }
+
+  function stopQuestionSpeech() {
+    questionSpeechRef.current?.cancel();
+  }
+
+  function toggleQuestionSpeech(text: string) {
+    const controller = questionSpeechRef.current;
+    if (!controller) return;
+    if (controller.active) {
+      controller.cancel();
+      return;
+    }
+    void controller.speak(text);
   }
 
   async function startRecording() {
+    stopQuestionSpeech();
     const generation = recordingGenerationRef.current + 1;
     recordingGenerationRef.current = generation;
     try {
@@ -801,7 +818,11 @@ export function InterviewView() {
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
             <main className="min-w-0 space-y-4">
               <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card sm:p-6">
-                <QuestionHeader question={question} isSpeaking={isSpeaking} onSpeak={() => speakQuestion(question.text)} />
+                <QuestionHeader
+                  question={question}
+                  speechPhase={speechPhase}
+                  onSpeak={() => toggleQuestionSpeech(question.text)}
+                />
                 <p className="mt-5 text-lg font-semibold leading-8 text-primary">{question.text}</p>
                 {question.adaptation && (
                   <div className="mt-4 flex items-start gap-2 border-l-2 border-amber-400 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800">
@@ -1036,7 +1057,17 @@ function InterviewTopbar({ progress, config, onReset }: { progress: InterviewPro
   );
 }
 
-function QuestionHeader({ question, isSpeaking, onSpeak }: { question: InterviewQuestion; isSpeaking: boolean; onSpeak: () => void }) {
+function QuestionHeader({
+  question,
+  speechPhase,
+  onSpeak,
+}: {
+  question: InterviewQuestion;
+  speechPhase: QuestionSpeechPhase;
+  onSpeak: () => void;
+}) {
+  const isLoading = speechPhase === 'loading';
+  const isSpeaking = speechPhase === 'speaking';
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="rounded bg-primary px-2 py-1 text-[11px] font-semibold text-white">Q{question.index}</span>
@@ -1045,11 +1076,18 @@ function QuestionHeader({ question, isSpeaking, onSpeak }: { question: Interview
       <span className="text-[11px] text-slate-400">深度 L{question.depth}/{question.maxDepth}</span>
       <button
         type="button"
-        title="朗读问题"
+        title={isLoading || isSpeaking ? '停止朗读' : '朗读问题'}
+        aria-label={isLoading || isSpeaking ? '停止朗读' : '朗读问题'}
         onClick={onSpeak}
         className="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accent"
       >
-        <Volume2 size={15} className={isSpeaking ? 'animate-pulse text-accent' : ''} />
+        {isLoading ? (
+          <Loader2 size={15} className="animate-spin text-accent" />
+        ) : isSpeaking ? (
+          <Square size={14} className="text-accent" />
+        ) : (
+          <Volume2 size={15} />
+        )}
       </button>
     </div>
   );

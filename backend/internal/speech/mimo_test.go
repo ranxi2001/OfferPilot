@@ -47,6 +47,17 @@ func TestTranscribeSendsGroundedAudioRequest(t *testing.T) {
 
 func TestSynthesizeDecodesAudio(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Audio struct {
+				Voice string `json:"voice"`
+			} `json:"audio"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Audio.Voice != "mimo_default" {
+			t.Fatalf("voice = %q, want mimo_default", body.Audio.Voice)
+		}
 		response.Header().Set("Content-Type", "application/json")
 		encoded := base64.StdEncoding.EncodeToString([]byte("audio"))
 		_, _ = response.Write([]byte(`{"choices":[{"message":{"audio":{"data":"` + encoded + `"}}}]}`))

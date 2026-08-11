@@ -115,6 +115,7 @@ MIMO_API_KEY=sk-...
 MIMO_BASE_URL=https://api.xiaomimimo.com/v1
 MIMO_ASR_MODEL=mimo-v2.5-asr
 MIMO_TTS_MODEL=mimo-v2.5-tts
+MIMO_TTS_VOICE=mimo_default
 
 ANTHROPIC_API_KEY=sk-ant-...
 DEEPSEEK_API_KEY=sk-...
@@ -126,6 +127,7 @@ DEEPSEEK_API_KEY=sk-...
 - Claude / DeepSeek provider 暂由旧 CLI 和 `serve:legacy` 保留。
 - OpenAI 兼容模型走 `OPENAI_BASE_URL`。
 - Mimo ASR/TTS 使用官方 `https://api.xiaomimimo.com/v1`。
+- MiMo TTS 默认使用官方预置音色 `mimo_default`，可通过 `MIMO_TTS_VOICE` 覆盖。
 - Mimo ASR 按官方文档通过 `/chat/completions` 的 `input_audio` 调用。
 - 浏览器录音会先编码成 WAV，再上传给后端转写。
 

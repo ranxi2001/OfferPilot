@@ -8,9 +8,11 @@ interface ModelItem {
   provider: string;
   model: string;
   base_url: string;
+  voice: string;
   env_key: string;
   model_env_key: string | null;
   base_url_env_key: string | null;
+  voice_env_key: string | null;
   available: boolean;
 }
 
@@ -97,6 +99,9 @@ export function ConfigModal({ open, onClose, onSaved }: Props) {
     }
     if (item.model_env_key) {
       keys.push({ key: item.model_env_key, label: 'Model', isSecret: false });
+    }
+    if (item.voice_env_key) {
+      keys.push({ key: item.voice_env_key, label: 'Voice', isSecret: false });
     }
     return keys;
   };

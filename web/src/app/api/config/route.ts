@@ -10,6 +10,7 @@ interface ModelEntry {
   model: string;
   env_key: string;
   base_url?: string;
+  voice?: string;
 }
 
 interface ModelsConfig {
@@ -83,6 +84,8 @@ function collectConfigKeys(config: ModelsConfig): Set<string> {
       if (modelRef) keys.add(modelRef);
       const baseRef = entry.base_url?.match(/\$\{(\w+)\}/)?.[1];
       if (baseRef) keys.add(baseRef);
+      const voiceRef = entry.voice?.match(/\$\{(\w+)\}/)?.[1];
+      if (voiceRef) keys.add(voiceRef);
     }
   }
   return keys;
@@ -114,9 +117,11 @@ export async function GET() {
       provider: e.provider,
       model: resolveEnvRef(e.model, merged),
       base_url: resolveEnvRef(e.base_url, merged),
+      voice: resolveEnvRef(e.voice, merged),
       env_key: e.env_key,
       model_env_key: e.model?.match(/\$\{(\w+)\}/)?.[1] ?? null,
       base_url_env_key: e.base_url?.match(/\$\{(\w+)\}/)?.[1] ?? null,
+      voice_env_key: e.voice?.match(/\$\{(\w+)\}/)?.[1] ?? null,
       available: !!(merged[e.env_key] && merged[e.env_key] !== `sk-ant-...` && merged[e.env_key] !== `sk-...`),
     }));
 
@@ -178,7 +183,7 @@ export async function POST(req: NextRequest) {
 
     const groups = [
       { label: '文本模型', keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'DEEPSEEK_MODEL'] },
-      { label: 'TTS 语音合成', keys: ['MIMO_API_KEY', 'MIMO_BASE_URL', 'MIMO_TTS_MODEL', 'OPENAI_TTS_MODEL'] },
+      { label: 'TTS 语音合成', keys: ['MIMO_API_KEY', 'MIMO_BASE_URL', 'MIMO_TTS_MODEL', 'MIMO_TTS_VOICE', 'OPENAI_TTS_MODEL'] },
       { label: '语音识别', keys: ['MIMO_ASR_MODEL', 'OPENAI_ASR_MODEL'] },
     ];
 

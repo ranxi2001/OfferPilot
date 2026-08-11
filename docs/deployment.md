@@ -28,7 +28,8 @@ Required in production:
 Optional:
 
 - `MIMO_API_KEY`, `MIMO_BASE_URL`, `MIMO_ASR_MODEL`, `MIMO_TTS_MODEL`,
-  `MIMO_TTS_VOICE`: WAV/MP3 transcription and speech synthesis.
+  `MIMO_TTS_VOICE`: WAV/MP3 transcription and speech synthesis. The default
+  MiMo preset voice is `mimo_default`.
 - `OFFERPILOT_HARNESS_MAX_CONCURRENT`: maximum concurrent typed Agent calls;
   defaults to `4`.
 - `OFFERPILOT_INTERVIEWER_TIMEOUT`, `OFFERPILOT_ASSESSOR_TIMEOUT`,

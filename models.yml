@@ -1,7 +1,7 @@
 # OfferPilot 模型配置
 # 每个分类可配置多个模型，运行时在侧边栏快速切换
 # env_key 引用 .env 中的 API Key 变量名
-# model / base_url 支持 ${ENV_VAR} 引用
+# model / base_url / voice 支持 ${ENV_VAR} 引用
 
 text:
   - name: Claude
@@ -28,6 +28,7 @@ tts:
     model: ${MIMO_TTS_MODEL}
     env_key: MIMO_API_KEY
     base_url: ${MIMO_BASE_URL}
+    voice: ${MIMO_TTS_VOICE}
 
   - name: OpenAI TTS
     provider: openai

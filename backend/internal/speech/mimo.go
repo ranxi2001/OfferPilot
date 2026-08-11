@@ -17,7 +17,7 @@ const (
 	defaultBaseURL  = "https://api.xiaomimimo.com/v1"
 	defaultASRModel = "mimo-v2.5-asr"
 	defaultTTSModel = "mimo-v2.5-tts"
-	defaultVoice    = "alloy"
+	defaultVoice    = "mimo_default"
 	maxResponseSize = 32 << 20
 )
 

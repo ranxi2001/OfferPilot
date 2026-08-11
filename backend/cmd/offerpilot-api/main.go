@@ -103,7 +103,7 @@ func main() {
 			BaseURL:     envOr("MIMO_BASE_URL", "https://api.xiaomimimo.com/v1"),
 			ASRModel:    envOr("MIMO_ASR_MODEL", "mimo-v2.5-asr"),
 			TTSModel:    envOr("MIMO_TTS_MODEL", "mimo-v2.5-tts"),
-			TTSVoice:    envOr("MIMO_TTS_VOICE", "alloy"),
+			TTSVoice:    envOr("MIMO_TTS_VOICE", "mimo_default"),
 			ASRLanguage: envOr("MIMO_ASR_LANGUAGE", "auto"),
 			Timeout:     durationEnv("MIMO_TIMEOUT", 60*time.Second),
 		}, nil)
