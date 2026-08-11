@@ -439,10 +439,14 @@ type CoveragePlanner interface {
 }
 
 type KnowledgeQuery struct {
-	Model  string `json:"model,omitempty"`
-	Focus  Focus  `json:"focus"`
-	JD     string `json:"jd,omitempty"`
-	Resume string `json:"resume,omitempty"`
+	Model           string   `json:"model,omitempty"`
+	Focus           Focus    `json:"focus"`
+	JD              string   `json:"jd,omitempty"`
+	Resume          string   `json:"resume,omitempty"`
+	CoveragePointID string   `json:"coveragePointId,omitempty"`
+	Objective       string   `json:"objective,omitempty"`
+	Question        string   `json:"question,omitempty"`
+	PreviousGaps    []string `json:"previousGaps,omitempty"`
 }
 
 type KnowledgeDocument struct {

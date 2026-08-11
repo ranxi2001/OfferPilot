@@ -762,17 +762,26 @@ func TestAssessmentCitationsAreLimitedToCurrentQuestionEvidence(t *testing.T) {
 		{name: "claim evidence", forgeClaim: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			documents := []KnowledgeDocument{
+			seedDocuments := []KnowledgeDocument{
 				{ID: "kb-current", Title: "Current", Content: "问题：当前题？\n参考内容：当前题答案。"},
 				{ID: "kb-other", Title: "Other", Content: "问题：其他题？\n参考内容：其他题答案。"},
 			}
+			retriever := &scriptedKnowledgeRetriever{retrieveFn: func(query KnowledgeQuery, _ int) ([]KnowledgeDocument, error) {
+				if query.Objective == "" {
+					return seedDocuments, nil
+				}
+				return seedDocuments[:1], nil
+			}}
 			agent := groundedAgent()
 			agent.assessFn = func(request AssessAnswerRequest, call int) (Assessment, error) {
-				if len(request.Anchors) < 2 {
-					t.Fatalf("assessment did not receive private supporting context: %+v", request.Anchors)
+				if len(request.Anchors) != 1 || request.Anchors[0].SourceID != "knowledge:kb-current" {
+					t.Fatalf("assessment received evidence outside the current bundle: %+v", request.Anchors)
 				}
 				current := evidenceFromAnchor(request.Anchors[0])
-				other := evidenceFromAnchor(request.Anchors[1])
+				other := EvidenceRef{
+					SourceID: "knowledge:kb-other", Kind: SourceKnowledge, AnchorID: "knowledge:kb-other:block",
+					Locator: "question-block", Quote: seedDocuments[1].Content,
+				}
 				assessment := Assessment{
 					Correctness: 3, Depth: 3, Specificity: 3, Ownership: 1, Metrics: 1, Tradeoffs: 3,
 					EvidenceRefs: []EvidenceRef{current},
@@ -792,7 +801,7 @@ func TestAssessmentCitationsAreLimitedToCurrentQuestionEvidence(t *testing.T) {
 				return assessment, nil
 			}
 			service := NewService(Dependencies{
-				Agent: agent, Retriever: staticKnowledgeRetriever(documents), Store: NewMemoryStore(),
+				Agent: agent, Retriever: retriever, Store: NewMemoryStore(),
 				Clock: fixedClock{value: time.Now()}, IDs: &sequenceIDs{},
 			})
 			started, err := service.Start(context.Background(), startRequest(1, FocusKnowledge, MaterialsInput{}))
@@ -808,6 +817,112 @@ func TestAssessmentCitationsAreLimitedToCurrentQuestionEvidence(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestKnowledgeRetrievalIsScopedToSelectedCoveragePoint(t *testing.T) {
+	const (
+		redisPrivate = "REDIS_PRIVATE_REFERENCE_17A9"
+		kafkaPrivate = "KAFKA_PRIVATE_REFERENCE_62C4"
+	)
+	retriever := &scriptedKnowledgeRetriever{retrieveFn: func(query KnowledgeQuery, _ int) ([]KnowledgeDocument, error) {
+		switch {
+		case strings.Contains(query.Objective, "Redis"):
+			return []KnowledgeDocument{{
+				ID: "kb-redis", Title: "Redis hotspots",
+				Content: "问题：如何治理 Redis 热点缓存？\n参考内容：" + redisPrivate,
+			}}, nil
+		case strings.Contains(query.Objective, "Kafka"):
+			return []KnowledgeDocument{{
+				ID: "kb-kafka", Title: "Kafka rebalance",
+				Content: "问题：如何控制 Kafka 消费者重平衡？\n参考内容：" + kafkaPrivate,
+			}}, nil
+		default:
+			t.Fatalf("retrieval was not bound to a coverage objective: %+v", query)
+			return nil, nil
+		}
+	}}
+
+	agent := &scriptedAgent{}
+	agent.questionFn = func(request GenerateQuestionRequest, call int) (QuestionDraft, error) {
+		encoded, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		contextText := string(encoded)
+		if strings.Contains(contextText, redisPrivate) || strings.Contains(contextText, kafkaPrivate) {
+			t.Fatalf("interviewer call %d received a private reference: %s", call, contextText)
+		}
+		wantSource := "knowledge:kb-redis"
+		forbiddenSource := "knowledge:kb-kafka"
+		question := "请解释 Redis 热点缓存治理的关键取舍。"
+		if call == 2 {
+			wantSource, forbiddenSource = forbiddenSource, wantSource
+			question = "请解释 Kafka 消费者重平衡的控制策略。"
+		}
+		if !requestHasAnchorSource(request.Anchors, wantSource) || requestHasAnchorSource(request.Anchors, forbiddenSource) {
+			t.Fatalf("interviewer call %d evidence was not isolated: %+v", call, request.Anchors)
+		}
+		return QuestionDraft{Text: question, EvidenceRefs: []EvidenceRef{evidenceFromAnchor(request.Anchors[0])}}, nil
+	}
+	agent.assessFn = func(request AssessAnswerRequest, _ int) (Assessment, error) {
+		if !requestHasAnchorSource(request.Anchors, "knowledge:kb-redis") || requestHasAnchorSource(request.Anchors, "knowledge:kb-kafka") {
+			t.Fatalf("assessor evidence was not isolated to Redis: %+v", request.Anchors)
+		}
+		encoded, err := json.Marshal(request.Anchors)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(encoded), redisPrivate) || strings.Contains(string(encoded), kafkaPrivate) {
+			t.Fatalf("assessor received the wrong private bundle: %s", encoded)
+		}
+		return Assessment{
+			Correctness: 5, Depth: 5, Specificity: 5, Ownership: 5, Metrics: 5, Tradeoffs: 5,
+			Gaps:         []string{"需要验证 Kafka rebalance 边界"},
+			EvidenceRefs: []EvidenceRef{evidenceFromAnchor(request.Anchors[0])},
+		}, nil
+	}
+	planner := &scriptedPlanner{planFn: func(request PlanCoverageRequest) (CoverageSelection, error) {
+		for _, candidate := range request.Candidates {
+			if strings.Contains(candidate.Label, "Kafka") {
+				return CoverageSelection{CoveragePointID: candidate.CoveragePointID, Reason: "验证下一项岗位要求", Signals: []string{"未覆盖"}}, nil
+			}
+		}
+		return CoverageSelection{}, errors.New("Kafka coverage point not found")
+	}}
+	service := NewService(Dependencies{
+		Agent: agent, Planner: planner, Retriever: retriever, Store: NewMemoryStore(),
+		Clock: fixedClock{value: time.Now()}, IDs: &sequenceIDs{},
+	})
+	started, err := service.Start(context.Background(), startRequest(2, FocusKnowledge, MaterialsInput{
+		JD: &MaterialInput{Text: "高级缓存工程师\n负责 Redis 热点缓存治理\n负责 Kafka 消费者重平衡治理"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	answered, err := service.Answer(context.Background(), answerRequest(started, "我会先识别热点 key，再隔离读写路径并验证容量边界。"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answered.NextQuestion == nil || agent.questionCalls != 2 {
+		t.Fatalf("next scoped question was not generated: %+v", answered.NextQuestion)
+	}
+	if retriever.calls != 2 {
+		t.Fatalf("retrieval calls = %d, want one per selected coverage point", retriever.calls)
+	}
+	secondQuery := retriever.queries[1]
+	if !strings.Contains(secondQuery.Objective, "Kafka") || secondQuery.Question != started.Question.Text ||
+		len(secondQuery.PreviousGaps) != 1 || secondQuery.PreviousGaps[0] != "需要验证 Kafka rebalance 边界" {
+		t.Fatalf("adaptive retrieval query = %+v", secondQuery)
+	}
+}
+
+func requestHasAnchorSource(anchors []SourceAnchor, sourceID string) bool {
+	for _, anchor := range anchors {
+		if anchor.SourceID == sourceID {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAssessmentWithoutEvidenceFailsClosedInsteadOfInventingCitation(t *testing.T) {
@@ -1025,6 +1140,26 @@ type staticKnowledgeRetriever []KnowledgeDocument
 
 func (r staticKnowledgeRetriever) Retrieve(context.Context, KnowledgeQuery) ([]KnowledgeDocument, error) {
 	return append([]KnowledgeDocument(nil), r...), nil
+}
+
+type scriptedKnowledgeRetriever struct {
+	mu         sync.Mutex
+	calls      int
+	queries    []KnowledgeQuery
+	retrieveFn func(KnowledgeQuery, int) ([]KnowledgeDocument, error)
+}
+
+func (r *scriptedKnowledgeRetriever) Retrieve(_ context.Context, query KnowledgeQuery) ([]KnowledgeDocument, error) {
+	r.mu.Lock()
+	r.calls++
+	call := r.calls
+	r.queries = append(r.queries, query)
+	fn := r.retrieveFn
+	r.mu.Unlock()
+	if fn == nil {
+		return nil, nil
+	}
+	return fn(query, call)
 }
 
 type fixedClock struct{ value time.Time }

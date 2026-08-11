@@ -11,6 +11,8 @@ import (
 	"offerpilot/backend/internal/executiontrace"
 )
 
+const maxKnowledgeEvidencePerQuestion = 5
+
 type Service struct {
 	agent     Agent
 	planner   CoveragePlanner
@@ -56,40 +58,23 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartRespons
 	}
 	validationSpan.End(nil, "")
 
-	knowledge := make([]KnowledgeDocument, 0)
-	if s.retriever != nil {
-		retrievalSpan := executiontrace.Start(ctx, "knowledge", "Retrieve knowledge references", "")
-		documents, err := s.retriever.Retrieve(ctx, KnowledgeQuery{
+	materialSpan := executiontrace.Start(ctx, "materials", "Prepare interview evidence", "")
+	profile, sources := buildProfile(request.Materials, nil, request.Config.Focus)
+	if len(profile.Coverage) == 0 && s.retriever != nil {
+		seed := s.retrieveKnowledge(ctx, KnowledgeQuery{
 			Model:  request.Model,
 			Focus:  request.Config.Focus,
 			JD:     materialText(request.Materials.JD),
 			Resume: materialText(request.Materials.Resume),
-		})
-		if err == nil {
-			knowledge = documents
-			retrievalSpan.End(nil, fmt.Sprintf("documents=%d", len(documents)))
-		} else {
-			retrievalSpan.End(err, "")
-		}
+		}, "Seed knowledge-only interview")
+		profile, sources = buildProfile(request.Materials, seed, request.Config.Focus)
 	}
-	materialSpan := executiontrace.Start(ctx, "materials", "Prepare interview evidence", "")
-	profile, sources := buildProfile(request.Materials, knowledge, request.Config.Focus)
 	materialSpan.End(nil, fmt.Sprintf("coveragePoints=%d", len(profile.Coverage)))
 	if len(profile.Coverage) == 0 {
 		return StartResponse{}, validation("materials", "JD, resume, or retrieved knowledge must contain at least one usable anchor")
 	}
 
 	interviewID := s.ids.NewID("interview")
-	rootID := s.ids.NewID("root")
-	initialPoint := profile.Coverage[0]
-	decision := PolicyDecision{
-		Action:          PolicyInitial,
-		Reason:          "start with the highest-priority uncovered material anchor",
-		Difficulty:      request.Config.Difficulty,
-		CoveragePointID: initialPoint.ID,
-		RootID:          rootID,
-		FollowUpDepth:   0,
-	}
 	session := InterviewSession{
 		ID:              interviewID,
 		ClientSessionID: request.ClientSessionID,
@@ -102,6 +87,15 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartRespons
 		CoverageCursor:  0,
 		StartedAt:       s.clock.Now(),
 		Version:         1,
+	}
+	initialPoint := s.bindKnowledgeContext(ctx, &session, profile.Coverage[0], Question{}, nil)
+	decision := PolicyDecision{
+		Action:          PolicyInitial,
+		Reason:          "start with the highest-priority uncovered material anchor",
+		Difficulty:      request.Config.Difficulty,
+		CoveragePointID: initialPoint.ID,
+		RootID:          s.ids.NewID("root"),
+		FollowUpDepth:   0,
 	}
 	question, err := s.generateQuestion(ctx, session, initialPoint, decision, "")
 	if err != nil {
@@ -121,7 +115,7 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartRespons
 	return StartResponse{
 		InterviewID: interviewID,
 		State:       session.State,
-		Profile:     profile,
+		Profile:     session.Profile,
 		Question:    question,
 		Progress:    progressFor(session),
 	}, nil
@@ -188,6 +182,7 @@ func (s *Service) Answer(ctx context.Context, request AnswerRequest) (AnswerResp
 			decision.Reason = strings.TrimSpace(selection.Reason)
 			session.Answers[len(session.Answers)-1].Decision = decision
 		}
+		point = s.bindKnowledgeContext(ctx, &session, point, record.Question, assessment.Gaps)
 		question, questionErr := s.generateQuestion(ctx, session, point, decision, request.QuestionID)
 		if questionErr != nil {
 			return AnswerResponse{}, questionErr
@@ -227,6 +222,72 @@ func (s *Service) Answer(ctx context.Context, request AnswerRequest) (AnswerResp
 		Progress:     progressFor(session),
 		ReportReady:  session.State == StateCompleted,
 	}, nil
+}
+
+func (s *Service) retrieveKnowledge(ctx context.Context, query KnowledgeQuery, operation string) []KnowledgeDocument {
+	if s.retriever == nil {
+		return nil
+	}
+	span := executiontrace.Start(ctx, "knowledge", operation, "knowledge_retriever")
+	documents, err := s.retriever.Retrieve(ctx, query)
+	if err != nil {
+		span.End(err, "")
+		return nil
+	}
+	span.End(nil, fmt.Sprintf("documents=%d", len(documents)))
+	return documents
+}
+
+// bindKnowledgeContext refreshes only the selected coverage point. The
+// resulting refs are the complete private evidence bundle authorized for the
+// next Interviewer and Assessor calls; other session knowledge never enters
+// either request.
+func (s *Service) bindKnowledgeContext(ctx context.Context, session *InterviewSession, point CoveragePoint, previous Question, gaps []string) CoveragePoint {
+	if session == nil || s.retriever == nil {
+		return point
+	}
+	documents := s.retrieveKnowledge(ctx, KnowledgeQuery{
+		Model:           session.Model,
+		Focus:           point.Area,
+		JD:              sourceContent(session.Sources, SourceJD),
+		Resume:          sourceContent(session.Sources, SourceResume),
+		CoveragePointID: point.ID,
+		Objective:       point.Label,
+		Question:        previous.Text,
+		PreviousGaps:    append([]string(nil), gaps...),
+	}, "Retrieve evidence for coverage point")
+	if len(documents) == 0 {
+		return point
+	}
+	knowledgeRefs := mergeKnowledgeDocuments(&session.Sources, documents, maxKnowledgeEvidencePerQuestion)
+	if len(knowledgeRefs) == 0 {
+		return point
+	}
+	bundle := make([]EvidenceRef, 0, len(point.EvidenceRefs)+len(knowledgeRefs))
+	for _, ref := range point.EvidenceRefs {
+		if ref.Kind != SourceKnowledge {
+			bundle = append(bundle, ref)
+		}
+	}
+	bundle = append(bundle, knowledgeRefs...)
+	point.EvidenceRefs = canonicalEvidence(session.Sources, bundle)
+	for index := range session.Profile.Coverage {
+		if session.Profile.Coverage[index].ID == point.ID {
+			session.Profile.Coverage[index] = point
+			break
+		}
+	}
+	return point
+}
+
+func sourceContent(index SourceIndex, kind SourceKind) string {
+	parts := make([]string, 0, 1)
+	for _, document := range index.Documents {
+		if document.Kind == kind && strings.TrimSpace(document.Content) != "" {
+			parts = append(parts, document.Content)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (s *Service) planNextCoverage(ctx context.Context, session InterviewSession, previous AnswerRecord) (result CoverageSelection, resultErr error) {
@@ -437,14 +498,9 @@ func (s *Service) generateQuestion(ctx context.Context, session InterviewSession
 		}
 	}
 
-	evidence := canonicalEvidence(session.Sources, draft.EvidenceRefs)
-	if len(point.EvidenceRefs) > 0 {
-		primary := canonicalEvidence(session.Sources, point.EvidenceRefs[:1])
-		if len(primary) > 0 {
-			evidence = append(primary, evidence...)
-			evidence = canonicalEvidence(session.Sources, evidence)
-		}
-	}
+	// Persist the entire per-question evidence bundle. The draft still has to
+	// cite from the bundle, while assessment receives this exact same set.
+	evidence := canonicalEvidence(session.Sources, point.EvidenceRefs)
 	return Question{
 		ID:              s.ids.NewID("question"),
 		RootID:          decision.RootID,
@@ -614,7 +670,6 @@ func (s *Service) assessAnswer(ctx context.Context, session InterviewSession, qu
 	if s.agent == nil {
 		return Assessment{}, unavailable("interview assessment is temporarily unavailable", errors.New("interview agent is not configured"))
 	}
-	anchors := assessmentAnchors(session, question)
 	questionAnchors := anchorsForEvidence(session.Sources, question.EvidenceRefs)
 	allowed := make(map[string]struct{}, len(questionAnchors))
 	for _, anchor := range questionAnchors {
@@ -623,7 +678,7 @@ func (s *Service) assessAnswer(ctx context.Context, session InterviewSession, qu
 	request := AssessAnswerRequest{
 		Question: question,
 		Answer:   answer,
-		Anchors:  anchors,
+		Anchors:  questionAnchors,
 		History:  session.Answers,
 	}
 	assessment, err := s.agent.AssessAnswer(ctx, request)
@@ -651,39 +706,6 @@ func (s *Service) assessAnswer(ctx context.Context, session InterviewSession, qu
 		assessment.ClaimChecks[i].EvidenceRefs = canonicalEvidence(session.Sources, assessment.ClaimChecks[i].EvidenceRefs)
 	}
 	return assessment, nil
-}
-
-func assessmentAnchors(session InterviewSession, question Question) []SourceAnchor {
-	anchors := anchorsForEvidence(session.Sources, question.EvidenceRefs)
-	point := coveragePointByID(session.Profile, question.CoveragePointID)
-	if point.Area != FocusKnowledge {
-		return anchors
-	}
-
-	seen := make(map[string]struct{}, len(anchors))
-	knowledgeCount := 0
-	for _, anchor := range anchors {
-		seen[anchor.ID] = struct{}{}
-		if anchor.Kind == SourceKnowledge {
-			knowledgeCount++
-		}
-	}
-	for _, anchorID := range session.Sources.Order {
-		if knowledgeCount >= 4 {
-			break
-		}
-		anchor, exists := session.Sources.Anchors[anchorID]
-		if !exists || anchor.Kind != SourceKnowledge {
-			continue
-		}
-		if _, exists := seen[anchor.ID]; exists {
-			continue
-		}
-		seen[anchor.ID] = struct{}{}
-		anchors = append(anchors, anchor)
-		knowledgeCount++
-	}
-	return anchors
 }
 
 func (s *Service) generateReport(ctx context.Context, session InterviewSession) (result Report, resultErr error) {

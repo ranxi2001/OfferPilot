@@ -149,23 +149,7 @@ func buildProfile(materials MaterialsInput, knowledge []KnowledgeDocument, focus
 	if materials.Resume != nil && strings.TrimSpace(materials.Resume.Text) != "" {
 		addDocument(&index, "resume", SourceResume, materials.Resume.Name, materials.Resume.Text)
 	}
-	for i, document := range knowledge {
-		if strings.TrimSpace(document.Content) == "" {
-			continue
-		}
-		name := strings.TrimSpace(document.Title)
-		if name == "" {
-			name = document.ID
-		}
-		sourceID := "knowledge:" + strings.TrimSpace(document.ID)
-		if strings.TrimSpace(document.ID) == "" {
-			sourceID = fmt.Sprintf("knowledge:%03d", i+1)
-		}
-		if _, exists := index.Documents[sourceID]; exists {
-			sourceID = fmt.Sprintf("%s:%03d", sourceID, i+1)
-		}
-		addKnowledgeDocument(&index, sourceID, name, document.Content)
-	}
+	mergeKnowledgeDocuments(&index, knowledge, 0)
 
 	profile := Profile{
 		JD: JDProfile{
@@ -219,7 +203,6 @@ func buildProfile(materials MaterialsInput, knowledge []KnowledgeDocument, focus
 
 	projectCoverage := projectCoverageFromAnchors(projectAnchors, resumeAnchors, 6)
 	jdCoverage := coverageFromAnchors("jd", FocusKnowledge, prioritizeJDAnchors(jdAnchors), 6)
-	jdCoverage = attachKnowledgeContext(jdCoverage, knowledgeAnchors, 2)
 	knowledgeCoverage := jdCoverage
 	knowledgeCoverage = append(knowledgeCoverage, coverageFromAnchors("knowledge", FocusKnowledge, knowledgeAnchors, 4)...)
 	switch focus {
@@ -270,6 +253,51 @@ func addKnowledgeDocument(index *SourceIndex, id, name, content string) {
 		Text:     content,
 	}
 	index.Order = append(index.Order, anchorID)
+}
+
+// mergeKnowledgeDocuments adds a retrieval result to a session source index
+// and returns the exact evidence bundle for this retrieval. Repeated results
+// reuse their existing anchor; a provider reusing an ID for different content
+// receives a distinct source ID instead of mutating historical evidence.
+func mergeKnowledgeDocuments(index *SourceIndex, documents []KnowledgeDocument, limit int) []EvidenceRef {
+	if index == nil {
+		return nil
+	}
+	refs := make([]EvidenceRef, 0, len(documents))
+	for position, document := range documents {
+		if limit > 0 && len(refs) >= limit {
+			break
+		}
+		content := strings.TrimSpace(document.Content)
+		if content == "" {
+			continue
+		}
+		name := strings.TrimSpace(document.Title)
+		if name == "" {
+			name = strings.TrimSpace(document.ID)
+		}
+		baseID := "knowledge:" + strings.TrimSpace(document.ID)
+		if strings.TrimSpace(document.ID) == "" {
+			baseID = fmt.Sprintf("knowledge:%03d", position+1)
+		}
+		sourceID := baseID
+		for suffix := 2; ; suffix++ {
+			existing, exists := index.Documents[sourceID]
+			if !exists {
+				addKnowledgeDocument(index, sourceID, name, content)
+				break
+			}
+			if existing.Kind == SourceKnowledge && strings.TrimSpace(existing.Content) == content {
+				break
+			}
+			sourceID = fmt.Sprintf("%s:%d", baseID, suffix)
+		}
+		anchor, exists := index.Anchors[sourceID+":block"]
+		if exists {
+			refs = append(refs, evidenceFromAnchor(anchor))
+		}
+	}
+	return refs
 }
 
 func segmentMaterial(content string) []string {
@@ -425,21 +453,6 @@ func publicAnchorLabel(anchor SourceAnchor) string {
 		return concise(knowledgeQuestionLabel(anchor.Text), 120)
 	}
 	return concise(anchor.Text, 120)
-}
-
-func attachKnowledgeContext(points []CoveragePoint, anchors []SourceAnchor, limit int) []CoveragePoint {
-	if limit <= 0 || len(anchors) == 0 {
-		return points
-	}
-	if len(anchors) < limit {
-		limit = len(anchors)
-	}
-	for index := range points {
-		for _, anchor := range anchors[:limit] {
-			points[index].EvidenceRefs = append(points[index].EvidenceRefs, evidenceFromAnchor(anchor))
-		}
-	}
-	return points
 }
 
 func projectCoverageFromAnchors(projectAnchors, allResumeAnchors []SourceAnchor, limit int) []CoveragePoint {

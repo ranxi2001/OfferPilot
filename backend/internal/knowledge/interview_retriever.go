@@ -63,12 +63,26 @@ func (r *InterviewRetriever) Retrieve(ctx context.Context, query interview.Knowl
 }
 
 func interviewSearchText(query interview.KnowledgeQuery) string {
-	parts := make([]string, 0, 3)
-	if value := boundedMaterial(query.JD, 12000); value != "" {
+	parts := make([]string, 0, 5)
+	if value := boundedMaterial(query.Objective, 1000); value != "" {
 		parts = append(parts, value)
 	}
-	if value := boundedMaterial(query.Resume, 12000); value != "" {
+	if value := boundedMaterial(query.Question, 1000); value != "" {
 		parts = append(parts, value)
+	}
+	if value := boundedMaterial(strings.Join(query.PreviousGaps, "\n"), 2000); value != "" {
+		parts = append(parts, value)
+	}
+	// Full materials are a seed query for legacy callers and knowledge-only
+	// starts. Once a coverage objective exists, keeping the query local avoids
+	// unrelated terms elsewhere in a long JD or resume dominating retrieval.
+	if strings.TrimSpace(query.Objective) == "" {
+		if value := boundedMaterial(query.JD, 12000); value != "" {
+			parts = append(parts, value)
+		}
+		if value := boundedMaterial(query.Resume, 12000); value != "" {
+			parts = append(parts, value)
+		}
 	}
 	if len(parts) == 0 {
 		switch query.Focus {

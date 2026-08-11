@@ -31,7 +31,7 @@ func TestKnowledgeQuestionBlockRemainsAtomicAndStable(t *testing.T) {
 	}
 }
 
-func TestJDKnowledgeCoverageCarriesPrivateReferenceContext(t *testing.T) {
+func TestJDCoverageDoesNotInheritGlobalKnowledgeContext(t *testing.T) {
 	t.Parallel()
 
 	document := KnowledgeDocument{
@@ -51,20 +51,11 @@ func TestJDKnowledgeCoverageCarriesPrivateReferenceContext(t *testing.T) {
 			break
 		}
 	}
-	if point.ID == "" || len(point.EvidenceRefs) < 2 || point.EvidenceRefs[0].Kind != SourceJD {
-		t.Fatalf("JD coverage is missing primary/private knowledge evidence: %+v", point)
+	if point.ID == "" || len(point.EvidenceRefs) != 1 || point.EvidenceRefs[0].Kind != SourceJD {
+		t.Fatalf("JD coverage inherited unrelated global knowledge evidence: %+v", point)
 	}
-	question := Question{CoveragePointID: point.ID, Kind: QuestionKnowledge, EvidenceRefs: point.EvidenceRefs[:1]}
-	anchors := assessmentAnchors(InterviewSession{Profile: profile, Sources: index}, question)
-	foundReference := false
-	for _, anchor := range anchors {
-		if anchor.Kind == SourceKnowledge && strings.Contains(anchor.Text, "参考内容：分别编码") {
-			foundReference = true
-			break
-		}
-	}
-	if !foundReference {
-		t.Fatalf("assessor did not receive the atomic knowledge reference: %+v", anchors)
+	if len(anchorsByKind(index, SourceKnowledge)) != 1 {
+		t.Fatal("knowledge source should remain indexed for its own coverage point")
 	}
 }
 
