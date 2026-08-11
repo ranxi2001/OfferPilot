@@ -1,6 +1,6 @@
 # OfferPilot
 
-Current release: `v0.3.0-alpha.1` · [Changelog](./CHANGELOG.md) · [Alpha verification](./docs/v0.3.0-alpha.1-release-verification.md) · [v0.3.0 roadmap](./docs/v0.3.0-optimization-plan.md)
+Current release: `v0.3.0-alpha.2` · [Changelog](./CHANGELOG.md) · [Alpha.2 verification](./docs/v0.3.0-alpha.2-release-verification.md) · [v0.3.0 roadmap](./docs/v0.3.0-optimization-plan.md)
 
 OfferPilot is an AI interview diagnosis agent for AI Agent / LLM engineering interviews. Its primary backend is a typed Agent Harness written in Go, not a LangChain / LangGraph wrapper. Next.js owns the Web/BFF and document extraction, while Node.js 24 remains the frontend and legacy CLI runtime.
 
@@ -27,6 +27,18 @@ Audio and mock-interview work is shown as a dedicated execution timeline instead
 
 ![Thought process card](./assets/cot.png)
 
+### Complete Mock-Interview Agent Trace
+
+Each answer keeps a continuous safe event history from receipt and validation through assessment, coverage planning, evidence retrieval, question generation, and persistence. This makes the Harness path and step timings directly inspectable.
+
+![Mock interview Agent execution trace](./assets/mock-interview-agent-trace.png)
+
+### Evidence-Grounded Answer Feedback
+
+Per-turn feedback presents supported points, remaining gaps, material checks, next-step strategy, and question evidence in one view so the basis for scoring and follow-up is visible.
+
+![Evidence-grounded mock interview feedback](./assets/mock-interview-evidence-feedback.png)
+
 ### Markdown Report Output
 
 Assistant answers render GitHub-Flavored Markdown, including tables. Each diagnosis response can be copied or saved as a `.md` file.
@@ -34,6 +46,14 @@ Assistant answers render GitHub-Flavored Markdown, including tables. Each diagno
 ![Markdown diagnosis demo](./assets/demo2.png)
 
 An exported sample report is available in [demo.md](./assets/demo.md).
+
+## v0.3.0-alpha.2 Changes
+
+- Interview question playback now uses MiMo TTS as the primary path with the official `mimo_default` voice; browser speech is only a fallback for service or playback failures.
+- The Go API retries transient ASR failures such as EOF, timeouts, connection resets, `429`, and `5xx` responses up to three attempts. Ordinary `4xx` responses and canceled requests are not retried.
+- The current question's original WAV stays in page memory after a failed transcription. “Re-analyze recording” reuses the exact audio and duration without asking the candidate to answer again.
+- The Go API and Next.js BFF expose stable retry semantics while hiding provider URLs, credentials, EOF details, and internal response bodies.
+- This patch has no database migration and continues to use schema v3. See [Alpha.2 release verification](./docs/v0.3.0-alpha.2-release-verification.md) for deployment and rollback boundaries.
 
 ## v0.3.0-alpha.1 Changes
 

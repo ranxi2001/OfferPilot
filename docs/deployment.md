@@ -29,7 +29,10 @@ Optional:
 
 - `MIMO_API_KEY`, `MIMO_BASE_URL`, `MIMO_ASR_MODEL`, `MIMO_TTS_MODEL`,
   `MIMO_TTS_VOICE`: WAV/MP3 transcription and speech synthesis. The default
-  MiMo preset voice is `mimo_default`.
+  MiMo preset voice is `mimo_default`. Existing `.env` files that explicitly
+  set `MIMO_TTS_VOICE=alloy` must change it to `mimo_default`, then restart the
+  API and Web services. Leaving the variable unset also uses the correct
+  default.
 - `OFFERPILOT_HARNESS_MAX_CONCURRENT`: maximum concurrent typed Agent calls;
   defaults to `4`.
 - `OFFERPILOT_INTERVIEWER_TIMEOUT`, `OFFERPILOT_ASSESSOR_TIMEOUT`,
@@ -92,7 +95,7 @@ A healthy, fully configured API reports the dynamically parsed knowledge count:
 {
   "status": "ready",
   "service": "offerpilot-go",
-  "version": "0.3.0-alpha.1",
+  "version": "0.3.0-alpha.2",
   "live": true,
   "ready": true,
   "readiness": "ready",

@@ -4,6 +4,50 @@
 [Semantic Versioning](https://semver.org/)，在 `1.0.0` 之前仍可能调整 API，
 但持久化数据变更必须提供向前迁移和回滚说明。
 
+## [0.3.0-alpha.2] - 2026-08-12
+
+这是 `0.3.0` 的语音可靠性 Alpha 补丁，修复面试题播报音色和回答转写失败后必须
+重新作答的问题。它不改变 Agent Harness、HTTP 成功响应或 SQLite schema。
+
+### Added
+
+- 当前题的 WAV、原始回答时长、面试 ID 和题目 ID 会保留在页面内存中；转写失败
+  后提供“重新分析录音”，重试复用完全相同的 Blob，无需重新回答。
+- Go ASR 客户端对 EOF、UnexpectedEOF、超时、连接重置、broken pipe、GOAWAY、
+  `429` 和 `5xx` 最多尝试 3 次，并使用 `100ms / 200ms` 有界退避。
+
+### Changed
+
+- 模拟面试题播报优先使用 MiMo TTS，服务或播放失败时才回退浏览器语音。
+- MiMo TTS 默认音色统一为官方预设 `mimo_default`，Go 主链路和旧 TypeScript
+  回滚链路保持一致。
+- ASR 请求取消和普通 `4xx` 不重试；TTS 保持单次 provider 请求，避免重复合成或
+  重复计费。
+
+### Security
+
+- Go API 与 Next.js BFF 不再向浏览器回显 provider URL、密钥、EOF 或内部响应正文，
+  只返回稳定的中文错误和 `retryable` 语义。
+- 录音缓存不写入 `sessionStorage`、IndexedDB 或磁盘；切题、提交成功、重置或页面
+  卸载时立即释放。
+
+### Migration And Rollback
+
+- 本版本没有数据库 migration，继续使用 schema v3，可直接回滚到
+  `v0.3.0-alpha.1` 而无需数据库降级。
+- 旧 `.env` 若显式配置 `MIMO_TTS_VOICE=alloy`，升级时必须改为
+  `MIMO_TTS_VOICE=mimo_default` 并重启 API 与 Web；未配置该变量时自动使用新默认值。
+
+### Verification
+
+- 完整命令、测试计数、真实 MiMo ASR/TTS 冒烟和已知边界见
+  [v0.3.0-alpha.2 发布验证](./docs/v0.3.0-alpha.2-release-verification.md)。
+
+### Known Limitations
+
+- 录音只保存在当前页面内存；刷新、关闭页面、切题、提交成功或重置后无法恢复。
+- 旧版本已释放的录音不能由本补丁事后找回。
+
 ## [0.3.0-alpha.1] - 2026-08-11
 
 这是 `0.3.0` 质量与故障语义工作流的首个 Alpha。它用于验证新的证据边界、
@@ -180,5 +224,6 @@ Profile 契约、Answer 幂等语义和持久化基础，不代表 `0.3.0` GA �
 
 下一版本计划见 [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)。
 
+[0.3.0-alpha.2]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0-alpha.2
 [0.3.0-alpha.1]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0-alpha.1
 [0.2.0]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.2.0

@@ -2,7 +2,7 @@
 
 [English](./README-EN.md)
 
-当前版本：`v0.3.0-alpha.1` · [版本记录](./CHANGELOG.md) · [Alpha 发布验证](./docs/v0.3.0-alpha.1-release-verification.md) · [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)
+当前版本：`v0.3.0-alpha.2` · [版本记录](./CHANGELOG.md) · [Alpha.2 发布验证](./docs/v0.3.0-alpha.2-release-verification.md) · [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)
 
 OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。主后端使用 Go 实现 typed Agent Harness，不依赖 LangChain / LangGraph；Next.js 负责 Web/BFF 与文档解析，Node.js 24 继续承载前端和旧 CLI。
 
@@ -26,6 +26,18 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 
 ![可审计处理轨迹](./assets/cot.png)
 
+### 完整模拟面试执行轨迹
+
+每轮回答从接收、校验、评估、覆盖规划、证据检索、出题到持久化都会保留连续的安全事件，便于核对 Agent Harness 实际执行了什么以及每一步耗时。
+
+![模拟面试 Agent 执行轨迹](./assets/mock-interview-agent-trace.png)
+
+### 证据化回答反馈
+
+逐轮反馈把成立点、待补漏洞、材料核对、下一步策略和本题证据放在同一视图中，让追问依据和评分边界可以直接检查。
+
+![模拟面试证据化回答反馈](./assets/mock-interview-evidence-feedback.png)
+
 ### Markdown 诊断报告
 
 诊断结果支持 GitHub-Flavored Markdown，包含表格渲染。每条回答尾部提供复制和保存 `.md` 文档的快捷操作。
@@ -33,6 +45,19 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 ![Markdown 诊断报告](./assets/demo2.png)
 
 导出的示例报告见：[demo.md](./assets/demo.md)。
+
+## v0.3.0-alpha.2 更新
+
+- 面试题播报改用 MiMo TTS 主链路，默认官方音色 `mimo_default`；浏览器语音仅在
+  服务不可用或音频无法播放时兜底。
+- 语音转写发生瞬时故障时，Go API 会对 EOF、超时、连接重置、`429` 和 `5xx`
+  最多尝试 3 次；普通 `4xx` 和已取消请求不会重试。
+- 当前题的原始 WAV 录音只缓存在页面内存中。转写仍失败时可点击“重新分析录音”，
+  复用完全相同的录音和时长，无需重新回答。
+- Go API 与 Next.js BFF 统一返回可重试语义，并屏蔽 provider URL、密钥、EOF 和
+  内部响应正文。
+- 本补丁不包含数据库 migration，继续使用 schema v3。部署与回滚边界见
+  [Alpha.2 发布验证](./docs/v0.3.0-alpha.2-release-verification.md)。
 
 ## v0.3.0-alpha.1 更新
 
