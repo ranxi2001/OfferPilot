@@ -231,6 +231,102 @@ var sqliteMigrations = []sqliteMigration{
 			)
 		`},
 	},
+	{
+		version: 2,
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS interview_commands (
+				id TEXT PRIMARY KEY,
+				session_id TEXT NOT NULL,
+				action TEXT NOT NULL,
+				idempotency_key TEXT NOT NULL,
+				subject_id TEXT NOT NULL DEFAULT '',
+				request_hash TEXT NOT NULL,
+				status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed')),
+				result_json BLOB,
+				error_json BLOB,
+				created_at_ms INTEGER NOT NULL,
+				updated_at_ms INTEGER NOT NULL,
+				UNIQUE (session_id, idempotency_key)
+			)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS interview_commands_subject_unique
+				ON interview_commands (session_id, action, subject_id)
+				WHERE subject_id <> ''`,
+			`CREATE INDEX IF NOT EXISTS interview_commands_status_idx
+				ON interview_commands (status, updated_at_ms)`,
+			`CREATE TABLE IF NOT EXISTS interview_session_cursors (
+				session_id TEXT PRIMARY KEY,
+				last_sequence INTEGER NOT NULL CHECK (last_sequence >= 0)
+			)`,
+			`CREATE TABLE IF NOT EXISTS interview_session_events (
+				session_id TEXT NOT NULL,
+				sequence INTEGER NOT NULL CHECK (sequence > 0),
+				event_id TEXT NOT NULL UNIQUE,
+				command_id TEXT NOT NULL DEFAULT '',
+				event_type TEXT NOT NULL,
+				payload_json BLOB NOT NULL,
+				created_at_ms INTEGER NOT NULL,
+				PRIMARY KEY (session_id, sequence)
+			)`,
+			`CREATE INDEX IF NOT EXISTS interview_session_events_command_idx
+				ON interview_session_events (command_id) WHERE command_id <> ''`,
+			`CREATE TABLE IF NOT EXISTS interview_model_invocations (
+				id TEXT PRIMARY KEY,
+				run_id TEXT NOT NULL,
+				command_id TEXT NOT NULL DEFAULT '',
+				session_id TEXT NOT NULL,
+				agent TEXT NOT NULL,
+				request_hash TEXT NOT NULL,
+				status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'manual_review')),
+				attempt INTEGER NOT NULL CHECK (attempt > 0),
+				result_json BLOB,
+				error_json BLOB,
+				created_at_ms INTEGER NOT NULL,
+				updated_at_ms INTEGER NOT NULL,
+				UNIQUE (run_id, request_hash, attempt)
+			)`,
+			`CREATE INDEX IF NOT EXISTS interview_model_invocations_recovery_idx
+				ON interview_model_invocations (status, updated_at_ms)`,
+			`CREATE TABLE IF NOT EXISTS interview_checkpoints (
+				id TEXT PRIMARY KEY,
+				run_id TEXT NOT NULL,
+				command_id TEXT NOT NULL DEFAULT '',
+				session_id TEXT NOT NULL,
+				sequence INTEGER NOT NULL CHECK (sequence >= 0),
+				state_json BLOB NOT NULL,
+				created_at_ms INTEGER NOT NULL,
+				UNIQUE (run_id, sequence)
+			)`,
+			`CREATE INDEX IF NOT EXISTS interview_checkpoints_latest_idx
+				ON interview_checkpoints (run_id, sequence DESC)`,
+			`CREATE TABLE IF NOT EXISTS interview_run_leases (
+				run_id TEXT PRIMARY KEY,
+				owner_id TEXT NOT NULL,
+				lease_token TEXT NOT NULL,
+				expires_at_ms INTEGER NOT NULL,
+				updated_at_ms INTEGER NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS interview_run_leases_expiry_idx
+				ON interview_run_leases (expires_at_ms)`,
+			`CREATE TABLE IF NOT EXISTS interview_outbox (
+				id TEXT PRIMARY KEY,
+				session_id TEXT NOT NULL,
+				sequence INTEGER NOT NULL CHECK (sequence > 0),
+				event_type TEXT NOT NULL,
+				payload_json BLOB NOT NULL,
+				status TEXT NOT NULL CHECK (status IN ('pending', 'claimed', 'published')),
+				available_at_ms INTEGER NOT NULL,
+				claim_owner TEXT NOT NULL DEFAULT '',
+				claim_until_ms INTEGER,
+				attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+				last_error TEXT NOT NULL DEFAULT '',
+				created_at_ms INTEGER NOT NULL,
+				published_at_ms INTEGER,
+				UNIQUE (session_id, sequence, event_type)
+			)`,
+			`CREATE INDEX IF NOT EXISTS interview_outbox_dispatch_idx
+				ON interview_outbox (status, available_at_ms, claim_until_ms, created_at_ms)`,
+		},
+	},
 }
 
 func (s *SQLiteStore) migrate(ctx context.Context) error {
