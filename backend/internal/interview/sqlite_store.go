@@ -327,6 +327,42 @@ var sqliteMigrations = []sqliteMigration{
 				ON interview_outbox (status, available_at_ms, claim_until_ms, created_at_ms)`,
 		},
 	},
+	{
+		version: 3,
+		statements: []string{
+			`ALTER TABLE interview_commands RENAME TO interview_commands_v2`,
+			`DROP INDEX IF EXISTS interview_commands_subject_unique`,
+			`DROP INDEX IF EXISTS interview_commands_status_idx`,
+			`CREATE TABLE interview_commands (
+				id TEXT PRIMARY KEY,
+				principal_id TEXT NOT NULL DEFAULT '',
+				session_id TEXT NOT NULL,
+				action TEXT NOT NULL,
+				idempotency_key TEXT NOT NULL,
+				subject_id TEXT NOT NULL DEFAULT '',
+				request_hash TEXT NOT NULL,
+				status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed')),
+				result_json BLOB,
+				error_json BLOB,
+				created_at_ms INTEGER NOT NULL,
+				updated_at_ms INTEGER NOT NULL,
+				UNIQUE (principal_id, session_id, action, idempotency_key)
+			)`,
+			`INSERT INTO interview_commands (
+				id, principal_id, session_id, action, idempotency_key, subject_id,
+				request_hash, status, result_json, error_json, created_at_ms, updated_at_ms
+			) SELECT
+				id, '', session_id, action, idempotency_key, subject_id,
+				request_hash, status, result_json, error_json, created_at_ms, updated_at_ms
+			FROM interview_commands_v2`,
+			`DROP TABLE interview_commands_v2`,
+			`CREATE UNIQUE INDEX interview_commands_subject_unique
+				ON interview_commands (principal_id, session_id, action, subject_id)
+				WHERE subject_id <> ''`,
+			`CREATE INDEX interview_commands_status_idx
+				ON interview_commands (status, updated_at_ms)`,
+		},
+	},
 }
 
 func (s *SQLiteStore) migrate(ctx context.Context) error {

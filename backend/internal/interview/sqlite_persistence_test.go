@@ -73,7 +73,7 @@ func TestSQLitePersistenceMigratesV1SnapshotWithoutChangingIt(t *testing.T) {
 	}
 
 	loaded.Version++
-	loaded.ClientSessionID = "after-v2-migration"
+	loaded.ClientSessionID = "after-v3-migration"
 	if err = store.Save(context.Background(), loaded, session.Version); err != nil {
 		t.Fatalf("Save(after migration) error = %v", err)
 	}
@@ -81,8 +81,65 @@ func TestSQLitePersistenceMigratesV1SnapshotWithoutChangingIt(t *testing.T) {
 	if err = store.db.QueryRow(`SELECT MAX(version) FROM interview_store_migrations`).Scan(&migrationVersion); err != nil {
 		t.Fatalf("read migration version error = %v", err)
 	}
-	if migrationVersion != 2 {
-		t.Fatalf("migration version = %d, want 2", migrationVersion)
+	if migrationVersion != 3 {
+		t.Fatalf("migration version = %d, want 3", migrationVersion)
+	}
+}
+
+func TestSQLitePersistenceMigratesPublishedV2CommandScope(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "interviews.sqlite")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`CREATE TABLE interview_store_migrations (
+		version INTEGER PRIMARY KEY,
+		applied_at_ms INTEGER NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range sqliteMigrations[:2] {
+		for _, statement := range migration.statements {
+			if _, err = db.Exec(statement); err != nil {
+				t.Fatalf("apply published migration %d: %v", migration.version, err)
+			}
+		}
+		if _, err = db.Exec(`INSERT INTO interview_store_migrations (version, applied_at_ms) VALUES (?, ?)`, migration.version, time.Now().UnixMilli()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = db.Exec(`INSERT INTO interview_commands (
+		id, session_id, action, idempotency_key, subject_id, request_hash,
+		status, created_at_ms, updated_at_ms
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"command-v2", "session-1", "answer", "client-answer-1", "question-1", "sha256:v2",
+		CommandSucceeded, time.Now().UnixMilli(), time.Now().UnixMilli(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := OpenSQLiteStore(path)
+	if err != nil {
+		t.Fatalf("OpenSQLiteStore(v2) error = %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	command, err := store.GetCommand(context.Background(), "command-v2")
+	if err != nil || command.PrincipalID != "" || command.RequestHash != "sha256:v2" || command.Status != CommandSucceeded {
+		t.Fatalf("migrated command = %+v error %v", command, err)
+	}
+	created, wasCreated, err := store.CreateOrGetCommand(context.Background(), CommandSpec{
+		ID: "command-v3", PrincipalID: "principal-2", SessionID: "session-1",
+		Action: "start", IdempotencyKey: "client-answer-1", RequestHash: "sha256:v3",
+	})
+	if err != nil || !wasCreated || created.ID != "command-v3" {
+		t.Fatalf("expanded v3 command scope = %+v created %v error %v", created, wasCreated, err)
+	}
+	var migrationVersion int
+	if err = store.db.QueryRow(`SELECT MAX(version) FROM interview_store_migrations`).Scan(&migrationVersion); err != nil || migrationVersion != 3 {
+		t.Fatalf("migration version = %d error %v, want 3", migrationVersion, err)
 	}
 }
 
@@ -141,6 +198,39 @@ func TestSQLitePersistenceCommandIdempotencyAndAnswerUniqueness(t *testing.T) {
 	}
 	if _, err = store.TransitionCommand(ctx, first.ID, CommandPending, CommandTransition{Status: CommandFailed}); !errors.Is(err, ErrPersistenceConflict) {
 		t.Fatalf("stale TransitionCommand() error = %v, want ErrPersistenceConflict", err)
+	}
+}
+
+func TestSQLitePersistenceCommandIdempotencyScopeIncludesPrincipalAndAction(t *testing.T) {
+	store := openTestSQLiteStore(t)
+	ctx := context.Background()
+	base := CommandSpec{
+		ID: "command-base", PrincipalID: "principal-a", SessionID: "session-1",
+		Action: "answer", IdempotencyKey: "client-command-1", RequestHash: "sha256:base",
+	}
+	first, created, err := store.CreateOrGetCommand(ctx, base)
+	if err != nil || !created {
+		t.Fatalf("base CreateOrGetCommand() = created %v error %v", created, err)
+	}
+
+	otherAction := base
+	otherAction.ID = "command-start"
+	otherAction.Action = "start"
+	otherAction.RequestHash = "sha256:start"
+	if command, actionCreated, actionErr := store.CreateOrGetCommand(ctx, otherAction); actionErr != nil || !actionCreated || command.ID == first.ID {
+		t.Fatalf("other action CreateOrGetCommand() = id %q created %v error %v", command.ID, actionCreated, actionErr)
+	}
+
+	otherPrincipal := base
+	otherPrincipal.ID = "command-principal-b"
+	otherPrincipal.PrincipalID = "principal-b"
+	otherPrincipal.RequestHash = "sha256:principal-b"
+	if command, principalCreated, principalErr := store.CreateOrGetCommand(ctx, otherPrincipal); principalErr != nil || !principalCreated || command.ID == first.ID {
+		t.Fatalf("other principal CreateOrGetCommand() = id %q created %v error %v", command.ID, principalCreated, principalErr)
+	}
+
+	if count := sqliteRowCount(t, store, "interview_commands"); count != 3 {
+		t.Fatalf("command row count = %d, want 3", count)
 	}
 }
 

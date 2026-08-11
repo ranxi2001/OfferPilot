@@ -28,6 +28,7 @@ const (
 
 type CommandSpec struct {
 	ID             string
+	PrincipalID    string
 	SessionID      string
 	Action         string
 	IdempotencyKey string
@@ -37,6 +38,7 @@ type CommandSpec struct {
 
 type Command struct {
 	ID             string          `json:"id"`
+	PrincipalID    string          `json:"principalId,omitempty"`
 	SessionID      string          `json:"sessionId"`
 	Action         string          `json:"action"`
 	IdempotencyKey string          `json:"idempotencyKey"`

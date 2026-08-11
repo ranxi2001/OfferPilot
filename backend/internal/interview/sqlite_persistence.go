@@ -15,7 +15,7 @@ type sqliteScanner interface {
 }
 
 const commandColumns = `
-	id, session_id, action, idempotency_key, subject_id, request_hash,
+	id, principal_id, session_id, action, idempotency_key, subject_id, request_hash,
 	status, result_json, error_json, created_at_ms, updated_at_ms`
 
 func (s *SQLiteStore) CreateOrGetCommand(ctx context.Context, spec CommandSpec) (Command, bool, error) {
@@ -25,11 +25,11 @@ func (s *SQLiteStore) CreateOrGetCommand(ctx context.Context, spec CommandSpec) 
 	now := time.Now().UTC().UnixMilli()
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO interview_commands (
-			id, session_id, action, idempotency_key, subject_id, request_hash,
+			id, principal_id, session_id, action, idempotency_key, subject_id, request_hash,
 			status, created_at_ms, updated_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT DO NOTHING
-	`, spec.ID, spec.SessionID, spec.Action, spec.IdempotencyKey, spec.SubjectID,
+	`, spec.ID, spec.PrincipalID, spec.SessionID, spec.Action, spec.IdempotencyKey, spec.SubjectID,
 		spec.RequestHash, CommandPending, now, now)
 	if err != nil {
 		return Command{}, false, fmt.Errorf("interview persistence: create command: %w", err)
@@ -43,7 +43,9 @@ func (s *SQLiteStore) CreateOrGetCommand(ctx context.Context, spec CommandSpec) 
 		return command, true, err
 	}
 
-	command, err := s.getCommandByIdempotencyKey(ctx, spec.SessionID, spec.IdempotencyKey)
+	command, err := s.getCommandByIdempotencyKey(
+		ctx, spec.PrincipalID, spec.SessionID, spec.Action, spec.IdempotencyKey,
+	)
 	if err == nil {
 		if sameCommandSpec(command, spec) {
 			return command, false, nil
@@ -55,7 +57,7 @@ func (s *SQLiteStore) CreateOrGetCommand(ctx context.Context, spec CommandSpec) 
 	}
 
 	if spec.SubjectID != "" {
-		command, err = s.getCommandBySubject(ctx, spec.SessionID, spec.Action, spec.SubjectID)
+		command, err = s.getCommandBySubject(ctx, spec.PrincipalID, spec.SessionID, spec.Action, spec.SubjectID)
 		if err == nil {
 			return command, false, fmt.Errorf("%w: session %q subject %q", ErrAnswerAlreadyCommitted, spec.SessionID, spec.SubjectID)
 		}
@@ -72,14 +74,24 @@ func (s *SQLiteStore) GetCommand(ctx context.Context, id string) (Command, error
 		FROM interview_commands WHERE id = ?`, id))
 }
 
-func (s *SQLiteStore) getCommandByIdempotencyKey(ctx context.Context, sessionID, key string) (Command, error) {
+func (s *SQLiteStore) getCommandByIdempotencyKey(
+	ctx context.Context,
+	principalID, sessionID, action, key string,
+) (Command, error) {
 	return scanSQLiteCommand(s.db.QueryRowContext(ctx, `SELECT `+commandColumns+`
-		FROM interview_commands WHERE session_id = ? AND idempotency_key = ?`, sessionID, key))
+		FROM interview_commands
+		WHERE principal_id = ? AND session_id = ? AND action = ? AND idempotency_key = ?`,
+		principalID, sessionID, action, key))
 }
 
-func (s *SQLiteStore) getCommandBySubject(ctx context.Context, sessionID, action, subjectID string) (Command, error) {
+func (s *SQLiteStore) getCommandBySubject(
+	ctx context.Context,
+	principalID, sessionID, action, subjectID string,
+) (Command, error) {
 	return scanSQLiteCommand(s.db.QueryRowContext(ctx, `SELECT `+commandColumns+`
-		FROM interview_commands WHERE session_id = ? AND action = ? AND subject_id = ?`, sessionID, action, subjectID))
+		FROM interview_commands
+		WHERE principal_id = ? AND session_id = ? AND action = ? AND subject_id = ?`,
+		principalID, sessionID, action, subjectID))
 }
 
 func (s *SQLiteStore) TransitionCommand(
@@ -132,7 +144,7 @@ func scanSQLiteCommand(scanner sqliteScanner) (Command, error) {
 		createdMS, updatedMS int64
 	)
 	err := scanner.Scan(
-		&command.ID, &command.SessionID, &command.Action, &command.IdempotencyKey,
+		&command.ID, &command.PrincipalID, &command.SessionID, &command.Action, &command.IdempotencyKey,
 		&command.SubjectID, &command.RequestHash, &command.Status, &resultJSON,
 		&errJSON, &createdMS, &updatedMS,
 	)
@@ -167,7 +179,7 @@ func validateCommandSpec(spec CommandSpec) error {
 }
 
 func sameCommandSpec(command Command, spec CommandSpec) bool {
-	return command.SessionID == spec.SessionID && command.Action == spec.Action &&
+	return command.PrincipalID == spec.PrincipalID && command.SessionID == spec.SessionID && command.Action == spec.Action &&
 		command.IdempotencyKey == spec.IdempotencyKey && command.SubjectID == spec.SubjectID &&
 		command.RequestHash == spec.RequestHash
 }
