@@ -161,6 +161,7 @@ export interface AnswerInterviewRequest {
   action: 'answer';
   interviewId: string;
   questionId: string;
+  clientAnswerId: string;
   answer: { text: string; inputMode: 'text' | 'voice'; durationMs?: number };
 }
 
@@ -171,6 +172,30 @@ export interface AnswerInterviewResponse {
   nextQuestion: InterviewQuestion | null;
   progress: InterviewProgress;
   reportReady: boolean;
+}
+
+export interface InterviewSnapshot {
+  interviewId: string;
+  state: 'questioning' | 'completed';
+  profile: CandidateProfile;
+  currentQuestion: InterviewQuestion | null;
+  turns: InterviewTurn[];
+  progress: InterviewProgress;
+  reportReady: boolean;
+}
+
+export interface InterviewSessionEvent {
+  eventId: string;
+  sequence: number;
+  commandId?: string;
+  type: 'answer.started' | 'answer.committed' | 'answer.failed' | string;
+  createdAt: string;
+}
+
+export interface InterviewSessionEventPage {
+  interviewId: string;
+  events: InterviewSessionEvent[];
+  nextSequence: number;
 }
 
 export interface ReportInterviewRequest {

@@ -26,9 +26,34 @@ import {
 } from 'lucide-react';
 import { ExecutionTimeline } from '@/components/ExecutionTimeline';
 import { MaterialInput } from '@/components/MaterialInput';
+import { reusableAnswerSubmission } from '@/lib/answer-submission';
+import {
+  clearClientAnswerDescriptor,
+  getOrCreateClientAnswerId,
+  readClientAnswerDescriptor,
+  type ClientAnswerDescriptor,
+  type ClientAnswerStorage,
+} from '@/lib/client-answer-id';
+import {
+  clearExecutionHistory,
+  readExecutionHistory,
+  settleLatestRunningExecution,
+  writeExecutionHistory,
+} from '@/lib/execution-history';
 import { InterviewRequestError, interviewClient } from '@/lib/interview-client';
+import {
+  clearInterviewEventSequence,
+  deriveRecoveredInterviewStage,
+  hasUnresolvedAnswerEvent,
+  latestAnswerEventOutcome,
+  mergeInterviewEvents,
+  readInterviewEventSequence,
+  recoveryEventAfter,
+  writeInterviewEventSequence,
+} from '@/lib/interview-recovery';
 import { failExecutionInRuns, mergeTraceIntoRuns } from '@/lib/execution-trace';
 import type {
+  AnswerInterviewRequest,
   CandidateProfile,
   InterviewAction,
   InterviewConfig,
@@ -55,6 +80,8 @@ interface ReleaseRecordingOptions {
 }
 
 const DEFAULT_PROGRESS: InterviewProgress = { answered: 0, target: 7, current: 1, percent: 0 };
+const RECOVERY_POLL_ATTEMPTS = 300;
+const RECOVERY_POLL_DELAY_MS = 1000;
 
 const focusOptions: Array<{ value: InterviewFocus; label: string; icon: typeof BrainCircuit }> = [
   { value: 'mixed', label: '综合拷打', icon: Crosshair },
@@ -107,6 +134,31 @@ export function InterviewView() {
   const transcriptionAbortRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
   const executionSequenceRef = useRef(0);
+  const clientAnswerRef = useRef<ClientAnswerDescriptor | null>(null);
+  const pendingAnswerRef = useRef<AnswerInterviewRequest | null>(null);
+
+  function answerStorage(): ClientAnswerStorage | null {
+    try {
+      return window.sessionStorage;
+    } catch {
+      return null;
+    }
+  }
+
+  function answerIdFor(activeInterviewId: string, activeQuestionId: string): string {
+    const current = clientAnswerRef.current;
+    if (current?.interviewId === activeInterviewId && current.questionId === activeQuestionId) {
+      return current.clientAnswerId;
+    }
+
+    const clientAnswerId = getOrCreateClientAnswerId(answerStorage(), activeInterviewId, activeQuestionId);
+    clientAnswerRef.current = {
+      interviewId: activeInterviewId,
+      questionId: activeQuestionId,
+      clientAnswerId,
+    };
+    return clientAnswerId;
+  }
 
   const releaseRecordingResources = useCallback((options: ReleaseRecordingOptions = {}) => {
     const {
@@ -163,6 +215,120 @@ export function InterviewView() {
     };
   }, [releaseRecordingResources]);
 
+  useEffect(() => {
+    const storage = answerStorage();
+    const descriptor = readClientAnswerDescriptor(storage);
+    if (!descriptor) return;
+
+    const controller = new AbortController();
+    const restore = async () => {
+      setBusy(true);
+      setBusyLabel('正在恢复上次面试');
+      setError(null);
+      try {
+        let sequence = readInterviewEventSequence(storage, descriptor.interviewId);
+        let events = [] as Awaited<ReturnType<typeof interviewClient.events>>['events'];
+        let eventsAvailable = true;
+
+        try {
+          const page = await interviewClient.events(
+            descriptor.interviewId,
+            recoveryEventAfter(sequence),
+            100,
+            controller.signal,
+          );
+          events = mergeInterviewEvents(events, page.events);
+          sequence = Math.max(sequence, page.nextSequence);
+          writeInterviewEventSequence(storage, descriptor.interviewId, sequence);
+        } catch (eventError) {
+          if ((eventError as Error).name === 'AbortError') throw eventError;
+          eventsAvailable = false;
+        }
+        let snapshot = await interviewClient.snapshot(descriptor.interviewId, controller.signal);
+
+        for (let attempt = 0; eventsAvailable && hasUnresolvedAnswerEvent(events) && attempt < RECOVERY_POLL_ATTEMPTS; attempt += 1) {
+          await waitForRecoveryPoll(RECOVERY_POLL_DELAY_MS, controller.signal);
+          let page;
+          try {
+            page = await interviewClient.events(descriptor.interviewId, sequence, 100, controller.signal);
+          } catch (eventError) {
+            if ((eventError as Error).name === 'AbortError') throw eventError;
+            eventsAvailable = false;
+            break;
+          }
+          events = mergeInterviewEvents(events, page.events);
+          sequence = Math.max(sequence, page.nextSequence);
+          writeInterviewEventSequence(storage, descriptor.interviewId, sequence);
+          snapshot = await interviewClient.snapshot(descriptor.interviewId, controller.signal);
+        }
+
+        if (snapshot.interviewId !== descriptor.interviewId) {
+          throw new InterviewRequestError('恢复的面试标识不匹配。', { code: 'invalid_response', status: 502 });
+        }
+        const recovered = deriveRecoveredInterviewStage(snapshot, descriptor.questionId);
+        if (!recovered) {
+          throw new InterviewRequestError('上次面试没有可恢复的题目。', { code: 'invalid_response', status: 502 });
+        }
+        if (controller.signal.aborted || !mountedRef.current) return;
+
+        clientAnswerRef.current = descriptor;
+        pendingAnswerRef.current = null;
+        setInterviewId(snapshot.interviewId);
+        setProfile(snapshot.profile);
+        setQuestion(recovered.question);
+        setPendingQuestion(recovered.pendingQuestion);
+        setFeedback(recovered.feedback);
+        setTurns(snapshot.turns);
+        setProgress(snapshot.progress);
+        setReport(null);
+        setAnswer('');
+        setFailedOperation(null);
+        const storedRuns = readExecutionHistory(storage, snapshot.interviewId);
+        const answerCommitted = snapshot.turns.some((turn) => turn.question.id === descriptor.questionId);
+        const recoveredOutcome = answerCommitted
+          ? 'completed'
+          : latestAnswerEventOutcome(events) === 'failed' ? 'failed' : null;
+        setExecutionRuns(recoveredOutcome
+          ? settleLatestRunningExecution(storedRuns, 'answer', recoveredOutcome, new Date().toISOString())
+          : storedRuns);
+        setPhase(recovered.phase);
+        if (recovered.phase === 'questioning') {
+          answerIdFor(snapshot.interviewId, recovered.question.id);
+          answerStartedAt.current = Date.now();
+        }
+        if (eventsAvailable && hasUnresolvedAnswerEvent(events)) {
+          setError('后台回答仍在处理中，请稍后刷新以同步最新题目。');
+        }
+      } catch (restoreError) {
+        if (controller.signal.aborted || !mountedRef.current) return;
+        const requestError = restoreError instanceof InterviewRequestError ? restoreError : null;
+        if (requestError && !requestError.retryable && requestError.status < 500) {
+          clearExecutionHistory(storage, descriptor.interviewId);
+          clearInterviewEventSequence(storage, descriptor.interviewId);
+          clearClientAnswerDescriptor(storage);
+          clientAnswerRef.current = null;
+        }
+        const canRetryRecovery = !requestError || requestError.retryable || requestError.status >= 500;
+        setError(canRetryRecovery
+          ? '暂时无法恢复上次面试，请稍后刷新；你也可以直接开始新面试。'
+          : '上次面试已失效，请重新开始。');
+      } finally {
+        if (!controller.signal.aborted && mountedRef.current) {
+          setBusy(false);
+          setBusyLabel('');
+        }
+      }
+    };
+
+    void restore();
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!interviewId) return;
+    writeExecutionHistory(answerStorage(), interviewId, executionRuns);
+  }, [executionRuns, interviewId]);
+
   function beginExecution(action: InterviewAction, title: string) {
     const id = `execution-${Date.now()}-${++executionSequenceRef.current}`;
     const startedAt = new Date().toISOString();
@@ -216,7 +382,18 @@ export function InterviewView() {
   function retryFailedOperation() {
     if (busy) return;
     if (failedOperation === 'start') void startInterview();
-    if (failedOperation === 'answer') void submitAnswer(answer);
+    if (failedOperation === 'answer') {
+      const pending = pendingAnswerRef.current;
+      if (pending) {
+        void submitAnswer(
+          pending.answer.text,
+          pending.answer.inputMode,
+          pending.answer.durationMs,
+        );
+      } else {
+        void submitAnswer(answer);
+      }
+    }
     if (failedOperation === 'report') void loadReport();
   }
 
@@ -229,11 +406,13 @@ export function InterviewView() {
       setError('项目深挖模式需要先上传或粘贴简历。');
       return;
     }
+    const previousInterviewId = readClientAnswerDescriptor(answerStorage())?.interviewId;
 
     setBusy(true);
     setBusyLabel('正在建立岗位画像与证据索引');
     setError(null);
     setFailedOperation(null);
+    pendingAnswerRef.current = null;
     const runId = beginExecution('start', '建立面试上下文');
     try {
       const data = await interviewClient.start({
@@ -242,9 +421,14 @@ export function InterviewView() {
         materials: { jd: jd ?? undefined, resume: resume ?? undefined },
       }, (trace) => recordExecutionTrace(runId, trace));
       completeExecution(runId);
+      if (previousInterviewId && previousInterviewId !== data.interviewId) {
+        clearExecutionHistory(answerStorage(), previousInterviewId);
+        clearInterviewEventSequence(answerStorage(), previousInterviewId);
+      }
       setInterviewId(data.interviewId);
       setProfile(data.profile);
       setQuestion(data.question);
+      answerIdFor(data.interviewId, data.question.id);
       setProgress(data.progress);
       setTurns([]);
       setFeedback(null);
@@ -267,25 +451,40 @@ export function InterviewView() {
     signal?: AbortSignal,
   ) {
     if (!interviewId || !question || !text.trim() || busy) return;
+    const submitted = text.trim();
+    const reusable = reusableAnswerSubmission(
+      pendingAnswerRef.current,
+      interviewId,
+      question.id,
+      submitted,
+    );
+    if (pendingAnswerRef.current?.questionId === question.id && !reusable) {
+      setError('上次提交结果尚未确认，请使用“重试本步”按原回答重试。');
+      setFailedOperation('answer');
+      return;
+    }
     setBusy(true);
     setBusyLabel('正在检索证据、核对事实并规划追问');
     setError(null);
     setFailedOperation(null);
-    const submitted = text.trim();
+    const request: AnswerInterviewRequest = reusable ?? {
+      action: 'answer',
+      interviewId,
+      questionId: question.id,
+      clientAnswerId: answerIdFor(interviewId, question.id),
+      answer: {
+        text: submitted,
+        inputMode,
+        durationMs,
+      },
+    };
+    pendingAnswerRef.current = request;
     const runId = beginExecution('answer', `第 ${question.index} 轮回答评估`);
     try {
-      const data = await interviewClient.answer({
-        action: 'answer',
-        interviewId,
-        questionId: question.id,
-        answer: {
-          text: submitted,
-          inputMode,
-          durationMs,
-        },
-      }, (trace) => recordExecutionTrace(runId, trace));
+      const data = await interviewClient.answer(request, (trace) => recordExecutionTrace(runId, trace));
       if (!mountedRef.current || signal?.aborted) return;
       completeExecution(runId);
+      pendingAnswerRef.current = null;
       releaseRecordingResources({ abortTranscription: false });
       setFeedback(data.feedback);
       setPendingQuestion(data.nextQuestion);
@@ -311,12 +510,15 @@ export function InterviewView() {
       void loadReport();
       return;
     }
-    setQuestion(pendingQuestion);
+    const nextQuestion = pendingQuestion;
+    pendingAnswerRef.current = null;
+    setQuestion(nextQuestion);
     setPendingQuestion(null);
     setFeedback(null);
     setPhase('questioning');
+    if (interviewId) answerIdFor(interviewId, nextQuestion.id);
     answerStartedAt.current = Date.now();
-    speakQuestion(pendingQuestion.text);
+    speakQuestion(nextQuestion.text);
   }
 
   async function loadReport() {
@@ -348,6 +550,13 @@ export function InterviewView() {
   function resetInterview() {
     releaseRecordingResources();
     window.speechSynthesis?.cancel();
+    if (interviewId) {
+      clearExecutionHistory(answerStorage(), interviewId);
+      clearInterviewEventSequence(answerStorage(), interviewId);
+    }
+    clientAnswerRef.current = null;
+    pendingAnswerRef.current = null;
+    clearClientAnswerDescriptor(answerStorage());
     setIsSpeaking(false);
     setPhase('setup');
     setInterviewId(null);
@@ -803,7 +1012,7 @@ function InterviewTopbar({ progress, config, onReset }: { progress: InterviewPro
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3 text-xs">
-            <span className="font-semibold text-primary">第 {Math.max(progress.current, 1)} 轮</span>
+            <span className="font-semibold text-primary">第 {Math.max(progress.current, progress.answered, 1)} 轮</span>
             <span className="text-slate-400">已完成 {progress.answered} / {progress.target}</span>
           </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
@@ -1153,6 +1362,24 @@ function interviewErrorMessage(errorValue: unknown) {
     return '评估 Agent 暂时不可用或执行超时，本次回答没有提交。可以直接重试。';
   }
   return message || '面试执行失败，本次内容没有提交。';
+}
+
+function waitForRecoveryPoll(delayMs: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Recovery cancelled', 'AbortError'));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener('abort', cancel);
+      resolve();
+    }, delayMs);
+    const cancel = () => {
+      window.clearTimeout(timer);
+      reject(new DOMException('Recovery cancelled', 'AbortError'));
+    };
+    signal.addEventListener('abort', cancel, { once: true });
+  });
 }
 
 function focusLabel(focus: InterviewFocus) {

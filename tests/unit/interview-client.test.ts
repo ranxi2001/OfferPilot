@@ -8,6 +8,37 @@ afterEach(() => {
 });
 
 describe('interview streaming client', () => {
+  it('loads snapshots and durable event pages through bounded GET queries', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('resource=events')) {
+        return new Response(JSON.stringify({
+          interviewId: 'interview-1',
+          events: [{ eventId: 'event-2', sequence: 2, commandId: 'command-1', type: 'answer.committed', createdAt: '2026-08-11T00:00:00Z' }],
+          nextSequence: 2,
+        }), { headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        interviewId: 'interview-1',
+        state: 'questioning',
+        profile: { topics: [], projects: [] },
+        currentQuestion: null,
+        turns: [],
+        progress: { answered: 0, target: 1, current: 1, percent: 0 },
+        reportReady: false,
+      }), { headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const snapshot = await interviewClient.snapshot('interview-1');
+    const events = await interviewClient.events('interview-1', 1, 25);
+
+    expect(snapshot.interviewId).toBe('interview-1');
+    expect(events.nextSequence).toBe(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/interview?interviewId=interview-1', expect.objectContaining({ method: 'GET', cache: 'no-store' }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/interview?interviewId=interview-1&resource=events&after=1&limit=25', expect.objectContaining({ method: 'GET', cache: 'no-store' }));
+  });
+
   it('preserves trace events split across network chunks before returning the result', async () => {
     const responseBody = [
       '{"type":"trace","trace":{"id":"load","stage":"session","label":"装载会话","detail":"已恢复","status":"completed","at":"2026-08-11T00:00:00Z"}}\n',
@@ -27,6 +58,7 @@ describe('interview streaming client', () => {
       action: 'answer',
       interviewId: 'interview-1',
       questionId: 'question-1',
+      clientAnswerId: 'answer-1',
       answer: { text: 'answer', inputMode: 'text' },
     }, (trace) => traces.push(`${trace.id}:${trace.status}`));
 
@@ -44,6 +76,7 @@ describe('interview streaming client', () => {
       action: 'answer',
       interviewId: 'interview-1',
       questionId: 'question-1',
+      clientAnswerId: 'answer-1',
       answer: { text: 'answer', inputMode: 'text' },
     });
 

@@ -4,6 +4,8 @@ import type {
   InterviewApiError,
   InterviewExecutionTrace,
   InterviewReport,
+  InterviewSessionEventPage,
+  InterviewSnapshot,
   ReportInterviewRequest,
   StartInterviewRequest,
   StartInterviewResponse,
@@ -107,6 +109,29 @@ async function postInterview<T>(payload: object, onTrace?: TraceListener): Promi
   return result.data as T;
 }
 
+async function getInterview<T>(query: URLSearchParams, signal?: AbortSignal): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`/api/interview?${query.toString()}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+      signal,
+    });
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') throw error;
+    throw new InterviewRequestError(`无法连接面试服务：${(error as Error).message}`, {
+      code: 'backend_unavailable',
+      retryable: true,
+      status: 502,
+    });
+  }
+
+  const data = await readJSONResponse<T>(response);
+  if (!response.ok) throw requestError(data, response.status);
+  return data as T;
+}
+
 async function readJSONResponse<T>(response: Response): Promise<T | InterviewApiError> {
   try {
     return await response.json() as T | InterviewApiError;
@@ -130,4 +155,11 @@ export const interviewClient = {
   start: (request: StartInterviewRequest, onTrace?: TraceListener) => postInterview<StartInterviewResponse>(request, onTrace),
   answer: (request: AnswerInterviewRequest, onTrace?: TraceListener) => postInterview<AnswerInterviewResponse>(request, onTrace),
   report: (request: ReportInterviewRequest, onTrace?: TraceListener) => postInterview<InterviewReport>(request, onTrace),
+  snapshot: (interviewId: string, signal?: AbortSignal) => getInterview<InterviewSnapshot>(new URLSearchParams({ interviewId }), signal),
+  events: (interviewId: string, after = 0, limit = 100, signal?: AbortSignal) => getInterview<InterviewSessionEventPage>(new URLSearchParams({
+    interviewId,
+    resource: 'events',
+    after: String(after),
+    limit: String(limit),
+  }), signal),
 };
