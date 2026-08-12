@@ -31,6 +31,17 @@
 
 ![OfferPilot 产品界面](./assets/offerpilot-banner.jpg)
 
+## 🎉 v0.3.0 正式版
+
+OfferPilot 的主后端已从 TypeScript 切换为 **Go**。Go API 现在承载 typed Agent Harness、面试编排、逐题知识检索、SQLite 持久化以及 MiMo ASR / TTS；Next.js 继续负责 Web/BFF 和 PDF、DOCX、URL 文档解析，旧 TypeScript API 仅作为迁移期回滚入口保留。
+
+- **更可靠**：回答幂等提交、浏览器断开后有界执行、会话快照恢复和 schema v3 执行账本。
+- **更可信**：JD 与简历类型化证据、逐题检索隔离、受约束的 Interviewer / Assessor / Reporter。
+- **更可观测**：安全执行轨迹、明确的 readiness、稳定错误语义和离线 Eval 门禁。
+- **更完整的语音体验**：MiMo TTS 主链路、瞬时 ASR 故障重试和失败录音重新分析。
+
+[查看完整更新记录](./CHANGELOG.md#030---2026-08-12) · [部署说明](./docs/deployment.md) · [从 Alpha 升级](./docs/v0.3.0-alpha.2-release-verification.md)
+
 ## 🎬 Demo
 
 ### 录音回答诊断

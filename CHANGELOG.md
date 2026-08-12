@@ -4,6 +4,37 @@
 [Semantic Versioning](https://semver.org/)，在 `1.0.0` 之前仍可能调整 API，
 但持久化数据变更必须提供向前迁移和回滚说明。
 
+## [0.3.0] - 2026-08-12
+
+`0.3.0` 是 OfferPilot Go 主后端的首个正式版本。经过两个 Alpha 版本验证后，Go API
+正式接管 typed Agent Harness、面试编排、逐题知识检索、SQLite 持久化、HTTP API
+以及 MiMo ASR/TTS。Next.js 继续负责 Web/BFF 和文档解析；旧 TypeScript API 仅作为
+迁移期回滚入口保留。
+
+### Highlights
+
+- JD 与简历先抽取为带原文引用的类型化 Profile，再围绕岗位要求、项目责任和量化
+  结果规划问题；Interviewer、Assessor 和 Reporter 只读取各自允许的证据。
+- 知识检索改为逐题绑定，回答提交具备稳定 `clientAnswerId` 和 SQLite 事务幂等语义，
+  避免网络重试导致重复计分或部分写入。
+- 浏览器断开后 Go Harness 可继续有界执行，同一标签页可从公开 snapshot 恢复面试；
+  安全轨迹不包含 Prompt、参考答案、简历/JD 正文或模型私有思维链。
+- SQLite schema v3 提供 command、event、model invocation、checkpoint、lease 和
+  outbox 执行账本，并保留从旧 schema 的事务内向前迁移。
+- MiMo TTS 成为题目播报主链路；ASR 对瞬时网络与供应商故障有界重试，失败后可复用
+  当前页面内存中的同一段 WAV 重新分析。
+- CI 覆盖 TypeScript、Go、Web、Docker、依赖审计、版本一致性和固定离线 Eval。
+
+### Upgrade And Rollback
+
+- 从 `v0.3.0-alpha.2` 升级不包含新的数据库 migration，继续使用 schema v3。
+- 从 `v0.2.0` 升级前必须停止写流量并备份 SQLite 数据库及其 WAL/SHM 文件；首次启动
+  会在事务内迁移到 schema v3。
+- 若 `.env` 显式配置 `MIMO_TTS_VOICE=alloy`，请改为 `mimo_default`。
+- 详细部署、备份和回滚边界见
+  [Alpha.1 发布验证](./docs/v0.3.0-alpha.1-release-verification.md) 与
+  [Alpha.2 发布验证](./docs/v0.3.0-alpha.2-release-verification.md)。
+
 ## [0.3.0-alpha.2] - 2026-08-12
 
 这是 `0.3.0` 的语音可靠性 Alpha 补丁，修复面试题播报音色和回答转写失败后必须
@@ -224,6 +255,7 @@ Profile 契约、Answer 幂等语义和持久化基础，不代表 `0.3.0` GA �
 
 下一版本计划见 [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)。
 
+[0.3.0]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0
 [0.3.0-alpha.2]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0-alpha.2
 [0.3.0-alpha.1]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0-alpha.1
 [0.2.0]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.2.0

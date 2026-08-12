@@ -31,6 +31,17 @@ OfferPilot is also a practical implementation of the `zero2Agent` learning syste
 
 ![OfferPilot product interface](./assets/offerpilot-banner.jpg)
 
+## 🎉 v0.3.0 General Availability
+
+OfferPilot's primary backend has moved from TypeScript to **Go**. The Go API now owns the typed Agent Harness, interview orchestration, per-question knowledge retrieval, SQLite persistence, and MiMo ASR / TTS. Next.js continues to provide the Web/BFF and PDF, DOCX, and URL extraction, while the legacy TypeScript API remains only as a migration rollback path.
+
+- **More reliable**: idempotent answer commits, bounded execution after disconnects, session snapshot recovery, and a schema v3 execution ledger.
+- **More trustworthy**: typed JD/resume evidence, per-question retrieval isolation, and constrained Interviewer, Assessor, and Reporter agents.
+- **More observable**: safe execution traces, explicit readiness, stable error semantics, and an offline evaluation gate.
+- **Complete voice workflow**: MiMo TTS by default, transient ASR retries, and failed-recording re-analysis.
+
+[Full changelog](./CHANGELOG.md#030---2026-08-12) · [Deployment guide](./docs/deployment.md) · [Upgrade from Alpha](./docs/v0.3.0-alpha.2-release-verification.md)
+
 ## 🎬 Demo
 
 ### Voice Answer Diagnosis

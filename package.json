@@ -1,6 +1,6 @@
 {
   "name": "offer-pilot",
-  "version": "0.3.0-alpha.2",
+  "version": "0.3.0",
   "type": "module",
   "engines": {
     "node": ">=24 <25"
