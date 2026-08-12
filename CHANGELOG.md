@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.3] - 2026-08-13
+
+This patch release restores multi-turn context in conversational diagnosis, makes long streamed answers readable, and refreshes the Agent interview knowledge base.
+
+### Fixed
+
+- Preserve client-provided session IDs in the Go chat endpoint and consume the canonical session ID returned by the SSE stream. Later voice or text answers now include the previous interviewer question and assistant response instead of starting an isolated session.
+- Add a two-turn backend regression test that verifies the complete conversation history reaches the model on the second request.
+- Pause streamed-answer auto-scroll as soon as the user scrolls upward by mouse, touch, or keyboard; disable browser scroll anchoring and provide a jump-to-latest control.
+
+### Changed
+
+- Synchronize 13 interview dimensions from `zero2Agent` commit `124d39d4e2c0f49ac304de100797c171ce017991`, increasing the Go knowledge loader from 404 to 486 entries while preserving OfferPilot-specific content.
+
+### Upgrade
+
+- No database migration or new environment variable is required. Restart both the Go API and Next.js Web service after upgrading.
+
 本文件记录 OfferPilot 各版本面向用户和部署者的主要变化。项目遵循
 [Semantic Versioning](https://semver.org/)，在 `1.0.0` 之前仍可能调整 API，
 但持久化数据变更必须提供向前迁移和回滚说明。
@@ -299,6 +317,7 @@ Profile 契约、Answer 幂等语义和持久化基础，不代表 `0.3.0` GA �
 
 下一版本计划见 [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)。
 
+[0.3.3]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.3
 [0.3.2]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.2
 [0.3.1]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0

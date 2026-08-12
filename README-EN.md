@@ -31,6 +31,12 @@ An end-to-end AI interview agent for JD and resume analysis, adaptive mock inter
 
 OfferPilot is also a practical implementation of the `zero2Agent` learning system, turning agent engineering concepts, interview knowledge, and architecture into a working application. The recommended server-backed deployment keeps LLM / ASR / TTS provider access behind the protected Go API.
 
+## 🧠 v0.3.3 Continuous Diagnosis and Knowledge Update
+
+- Conversational diagnosis now preserves the interviewer's question, the candidate's answer, and prior feedback within the same session.
+- Streaming output stops following when the user scrolls up, with a jump-to-latest control to resume.
+- The interview knowledge base is synchronized with the latest [zero2Agent](https://github.com/ranxi2001/zero2Agent) content; the Go backend now loads 486 entries.
+
 ## 📚 v0.3.2 Mock Interview Review
 
 - Export a self-contained `.html` review at any point during the interview or from the final report.
