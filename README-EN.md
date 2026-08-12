@@ -16,6 +16,8 @@ An end-to-end AI interview agent for JD and resume analysis, adaptive mock inter
 
 </div>
 
+![OfferPilot product interface](./assets/offerpilot-banner.jpg)
+
 > 🧩 **Job application companion: [OfferPilot-plugin](https://github.com/zlr930/OfferPilot-plugin)**
 >
 > Automatically fill resumes and online application forms with less repetitive data entry. OfferPilot prepares you for the interview; the companion extension helps you get there.
@@ -28,8 +30,6 @@ An end-to-end AI interview agent for JD and resume analysis, adaptive mock inter
 - **Production-oriented**: built on a Go typed Agent Harness and Next.js Web/BFF, without LangChain or LangGraph.
 
 OfferPilot is also a practical implementation of the `zero2Agent` learning system, turning agent engineering concepts, interview knowledge, and architecture into a working application. The recommended server-backed deployment keeps LLM / ASR / TTS provider access behind the protected Go API.
-
-![OfferPilot product interface](./assets/offerpilot-banner.jpg)
 
 ## 🎉 v0.3.0 General Availability
 

@@ -16,6 +16,8 @@
 
 </div>
 
+![OfferPilot 产品界面](./assets/offerpilot-banner.jpg)
+
 > 🧩 **求职投递搭档：[OfferPilot-plugin](https://github.com/zlr930/OfferPilot-plugin)**
 >
 > 自动填写简历与网申表单，减少重复录入。OfferPilot 帮你准备面试，配套插件帮你更轻松地完成投递。
@@ -28,8 +30,6 @@
 - **工程化后端**：Go typed Agent Harness + Next.js Web/BFF，不依赖 LangChain / LangGraph。
 
 项目也是 `zero2Agent` 学习体系的实战项目，将 Agent 工程知识、面试题库和架构设计落地为可运行系统。推荐使用 server-backed 部署：Next.js Web 通过受保护的 Go API 调用 LLM / ASR / TTS provider。
-
-![OfferPilot 产品界面](./assets/offerpilot-banner.jpg)
 
 ## 🎉 v0.3.0 正式版
 
