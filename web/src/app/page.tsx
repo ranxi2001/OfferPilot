@@ -29,6 +29,7 @@ export default function Home() {
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
+  const touchStartYRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (shouldAutoScrollRef.current) {
@@ -229,6 +230,31 @@ export default function Home() {
     setShowScrollToBottom(!isNearBottom);
   }
 
+  function pauseAutoScroll() {
+    shouldAutoScrollRef.current = false;
+    setShowScrollToBottom(true);
+  }
+
+  function handleMessagesWheel(event: React.WheelEvent<HTMLDivElement>) {
+    if (event.deltaY < 0) pauseAutoScroll();
+  }
+
+  function handleMessagesTouchStart(event: React.TouchEvent<HTMLDivElement>) {
+    touchStartYRef.current = event.touches[0]?.clientY ?? null;
+  }
+
+  function handleMessagesTouchMove(event: React.TouchEvent<HTMLDivElement>) {
+    const currentY = event.touches[0]?.clientY;
+    if (currentY != null && touchStartYRef.current != null && currentY > touchStartYRef.current) {
+      pauseAutoScroll();
+    }
+    touchStartYRef.current = currentY ?? null;
+  }
+
+  function handleMessagesKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) pauseAutoScroll();
+  }
+
   function scrollToLatest() {
     shouldAutoScrollRef.current = true;
     setShowScrollToBottom(false);
@@ -281,7 +307,12 @@ export default function Home() {
               <div
                 ref={messagesScrollRef}
                 onScroll={handleMessagesScroll}
-                className="h-full overflow-y-auto px-4 py-6"
+                onWheelCapture={handleMessagesWheel}
+                onTouchStart={handleMessagesTouchStart}
+                onTouchMove={handleMessagesTouchMove}
+                onKeyDown={handleMessagesKeyDown}
+                tabIndex={0}
+                className="h-full overflow-y-auto px-4 py-6 focus:outline-none [overflow-anchor:none]"
               >
                 <div className="mx-auto max-w-3xl space-y-5">
                   {messages.length === 0 && <WelcomeScreen onSend={sendMessage} />}
