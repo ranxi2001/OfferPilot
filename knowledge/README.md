@@ -1,5 +1,8 @@
 # 知识库 (Knowledge Base)
 
+> 上游来源：[ranxi2001/zero2Agent](https://github.com/ranxi2001/zero2Agent) `learn-agent-interview/`
+> 最近同步：2026-08-13，提交 `124d39d4e2c0f49ac304de100797c171ce017991`
+
 ## 目录结构
 
 ```
