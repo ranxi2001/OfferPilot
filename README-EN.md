@@ -33,7 +33,7 @@ OfferPilot is also a practical implementation of the `zero2Agent` learning syste
 
 ## 🎉 v0.3.0 General Availability
 
-OfferPilot's primary backend has moved from TypeScript to **Go**. The Go API now owns the typed Agent Harness, interview orchestration, per-question knowledge retrieval, SQLite persistence, and MiMo ASR / TTS. Next.js continues to provide the Web/BFF and PDF, DOCX, and URL extraction, while the legacy TypeScript API remains only as a migration rollback path.
+OfferPilot's backend has moved from TypeScript to **Go**. The Go API now owns the typed Agent Harness, interview orchestration, per-question knowledge retrieval, SQLite persistence, and MiMo ASR / TTS. Next.js provides the Web/BFF and PDF, DOCX, and URL extraction.
 
 - **More reliable**: idempotent answer commits, bounded execution after disconnects, session snapshot recovery, and a schema v3 execution ledger.
 - **More trustworthy**: typed JD/resume evidence, per-question retrieval isolation, and constrained Interviewer, Assessor, and Reporter agents.
@@ -159,7 +159,6 @@ backend/
   internal/speech/     MiMo ASR/TTS
 
 web/                   Next.js UI/BFF and document extraction
-src/                   legacy TypeScript CLI/API during migration
 ```
 
 See [Agent Harness and Go backend architecture](./docs/agent-harness-architecture.md) for the full design.
@@ -189,15 +188,11 @@ MIMO_API_KEY=sk-...
 MIMO_BASE_URL=https://api.xiaomimimo.com/v1
 MIMO_ASR_MODEL=mimo-v2.5-asr
 MIMO_TTS_MODEL=mimo-v2.5-tts
-
-ANTHROPIC_API_KEY=sk-ant-...
-DEEPSEEK_API_KEY=sk-...
 ```
 
 Notes:
 
-- The Go backend currently uses an OpenAI-compatible text endpoint; the default chat model is `gpt-5.5`.
-- Claude and DeepSeek remain available through the legacy CLI/API during migration.
+- The Go backend uses an OpenAI-compatible text endpoint; the default chat model is `gpt-5.5`.
 - OpenAI-compatible chat requests use `OPENAI_BASE_URL`.
 - Mimo ASR/TTS uses the official `https://api.xiaomimimo.com/v1` base URL.
 - Mimo ASR is implemented through `/chat/completions` with `input_audio`, following the official Mimo documentation.
@@ -205,31 +200,24 @@ Notes:
 
 ## ⚡ Quick Start
 
-This project uses Go 1.26 and Node.js 24. `better-sqlite3` is now legacy-only and remains compatible with Node.js 24.
+This project uses Go 1.26 and Node.js 24: Go runs the API and Agent Harness, while Node.js is used only by the Next.js Web/BFF.
 
 ```bash
-npm install
-cd web && npm install && cd ..
 cp .env.example .env
+cd web && npm install && cd ..
 ```
 
-Run the API server:
+Terminal 1: run the Go API:
 
 ```bash
-npm run serve
+cd backend
+go run ./cmd/offerpilot-api
 ```
 
-Use the legacy TypeScript API only for rollback:
-
-```bash
-npm run serve:legacy
-```
-
-Run the Web UI:
+Terminal 2: run the Web UI:
 
 ```bash
 cd web
-npm install
 npm run dev
 ```
 
@@ -242,39 +230,12 @@ http://localhost:3000
 API health check:
 
 ```text
-http://localhost:3001/health
 http://localhost:3001/health/live
 http://localhost:3001/health/ready
 http://localhost:3000/api/health
 ```
 
 `/health/live` only reports process liveness. Deployments and traffic gates must use `/health/ready`; it returns `503` when the model is unavailable, and interviews never commit a mechanical fallback score.
-
-## CLI Usage
-
-Interactive session:
-
-```bash
-npm start
-```
-
-Single diagnosis:
-
-```bash
-npm run diagnose -- -q "What is a ReAct Agent?" -a "It reasons, calls tools, observes results, and iterates."
-```
-
-Build the knowledge base:
-
-```bash
-npm run build-kb
-```
-
-Generate embeddings:
-
-```bash
-npm run embed
-```
 
 ## Web Voice Diagnosis Flow
 
@@ -312,8 +273,7 @@ Production deployment details are in [docs/deployment.md](./docs/deployment.md).
 Recent local verification:
 
 ```bash
-npm run build
-npm run test:go
+cd backend && go test ./... && cd ..
 npx vitest run tests/unit tests/e2e
 npm --prefix web run build
 git diff --check
@@ -322,7 +282,6 @@ git diff --check
 Expected result:
 
 ```text
-Go and legacy TypeScript builds pass
 Go backend tests pass
 Unit and E2E tests pass
 Next.js production build passed

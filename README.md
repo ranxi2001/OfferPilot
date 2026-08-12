@@ -33,7 +33,7 @@
 
 ## 🎉 v0.3.0 正式版
 
-OfferPilot 的主后端已从 TypeScript 切换为 **Go**。Go API 现在承载 typed Agent Harness、面试编排、逐题知识检索、SQLite 持久化以及 MiMo ASR / TTS；Next.js 继续负责 Web/BFF 和 PDF、DOCX、URL 文档解析，旧 TypeScript API 仅作为迁移期回滚入口保留。
+OfferPilot 的后端已从 TypeScript 切换为 **Go**。Go API 现在承载 typed Agent Harness、面试编排、逐题知识检索、SQLite 持久化以及 MiMo ASR / TTS；Next.js 负责 Web/BFF 和 PDF、DOCX、URL 文档解析。
 
 - **更可靠**：回答幂等提交、浏览器断开后有界执行、会话快照恢复和 schema v3 执行账本。
 - **更可信**：JD 与简历类型化证据、逐题检索隔离、受约束的 Interviewer / Assessor / Reporter。
@@ -139,8 +139,6 @@ backend/
 web/
   src/app/            Next.js App Router、BFF、PDF/DOCX/URL 解析
   src/components/     面试作战台、材料输入、Chat 与报告 UI
-
-src/                  旧 TypeScript CLI/API，迁移期间保留
 ```
 
 完整设计与迁移约束见 [Agent Harness 与 Go 后端架构](./docs/agent-harness-architecture.md)。
@@ -171,15 +169,11 @@ MIMO_BASE_URL=https://api.xiaomimimo.com/v1
 MIMO_ASR_MODEL=mimo-v2.5-asr
 MIMO_TTS_MODEL=mimo-v2.5-tts
 MIMO_TTS_VOICE=mimo_default
-
-ANTHROPIC_API_KEY=sk-ant-...
-DEEPSEEK_API_KEY=sk-...
 ```
 
 说明：
 
-- Go 主后端当前使用 OpenAI-compatible 文本接口，默认聊天模型是 `gpt-5.5`。
-- Claude / DeepSeek provider 暂由旧 CLI 和 `serve:legacy` 保留。
+- Go 后端使用 OpenAI-compatible 文本接口，默认聊天模型是 `gpt-5.5`。
 - OpenAI 兼容模型走 `OPENAI_BASE_URL`。
 - Mimo ASR/TTS 使用官方 `https://api.xiaomimimo.com/v1`。
 - MiMo TTS 默认使用官方预置音色 `mimo_default`，可通过 `MIMO_TTS_VOICE` 覆盖。
@@ -188,31 +182,24 @@ DEEPSEEK_API_KEY=sk-...
 
 ## ⚡ 快速开始
 
-项目使用 Go 1.26 和 Node.js 24。`better-sqlite3` 只用于旧 CLI/API，已升级到支持 Node.js 24 的版本。
+项目使用 Go 1.26 和 Node.js 24：Go 负责 API 与 Agent Harness，Node.js 仅用于 Next.js Web/BFF。
 
 ```bash
-npm install
-cd web && npm install && cd ..
 cp .env.example .env
+cd web && npm install && cd ..
 ```
 
-启动 API Server：
+终端 1：启动 Go API：
 
 ```bash
-npm run serve
+cd backend
+go run ./cmd/offerpilot-api
 ```
 
-旧 TypeScript API 仅用于迁移回滚：
-
-```bash
-npm run serve:legacy
-```
-
-启动 Web UI：
+终端 2：启动 Web UI：
 
 ```bash
 cd web
-npm install
 npm run dev
 ```
 
@@ -225,39 +212,12 @@ http://localhost:3000
 健康检查：
 
 ```text
-http://localhost:3001/health
 http://localhost:3001/health/live
 http://localhost:3001/health/ready
 http://localhost:3000/api/health
 ```
 
 `/health/live` 只表示进程存活；部署和流量入口必须使用 `/health/ready`。模型未配置时 readiness 返回 `503`，面试接口不会生成机械兜底评分。
-
-## CLI 使用
-
-交互式诊断：
-
-```bash
-npm start
-```
-
-单次诊断：
-
-```bash
-npm run diagnose -- -q "什么是 ReAct Agent？" -a "它会推理、调用工具、观察结果并继续迭代。"
-```
-
-构建知识库：
-
-```bash
-npm run build-kb
-```
-
-生成 embedding：
-
-```bash
-npm run embed
-```
 
 ## Web 录音诊断流程
 
@@ -295,8 +255,7 @@ Web: http://localhost:3000
 最近一次本地验证命令：
 
 ```bash
-npm run build
-npm run test:go
+cd backend && go test ./... && cd ..
 npx vitest run tests/unit tests/e2e
 npm --prefix web run build
 git diff --check
@@ -305,7 +264,6 @@ git diff --check
 预期结果：
 
 ```text
-Go 与旧 TypeScript 构建通过
 Go 后端测试通过
 单元测试和 E2E 测试通过
 Next.js 生产构建通过
