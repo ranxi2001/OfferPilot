@@ -1,20 +1,37 @@
+<div align="center">
+
 # OfferPilot
 
-[English](./README-EN.md)
+**让每一次 AI / LLM 工程面试，都有证据、有反馈、有进步。**
 
-当前版本：`v0.3.0-alpha.2` · [版本记录](./CHANGELOG.md) · [Alpha.2 发布验证](./docs/v0.3.0-alpha.2-release-verification.md) · [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)
+从 JD 与简历分析，到自适应模拟面试、语音诊断和能力报告的一站式 AI 面试 Agent。
 
-OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。主后端使用 Go 实现 typed Agent Harness，不依赖 LangChain / LangGraph；Next.js 负责 Web/BFF 与文档解析，Node.js 24 继续承载前端和旧 CLI。
+[![CI](https://github.com/ranxi2001/OfferPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/ranxi2001/OfferPilot/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ranxi2001/OfferPilot?include_prereleases&label=release)](https://github.com/ranxi2001/OfferPilot/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](./backend)
+[![Node.js](https://img.shields.io/badge/Node.js-24-5FA04E?logo=nodedotjs&logoColor=white)](./package.json)
 
-**配套插件：[OfferPilot-plugin](https://github.com/zlr930/OfferPilot-plugin)** —— 自动填写简历和网申表单的浏览器插件，减少求职投递中的重复录入。
+[English](./README-EN.md) · [快速开始](#-快速开始) · [功能模块](#-功能模块) · [架构概览](#-架构概览) · [版本记录](./CHANGELOG.md)
 
-项目同时也是 `zero2Agent` 学习体系的实战项目：把教程里的 Agent 工程知识、面试题库和架构拆解落地成可运行系统。
+</div>
 
-当前推荐部署形态是 server-backed：浏览器访问 Next.js Web，Web 通过受保护的 Go API 调用 LLM / ASR / TTS provider。模拟面试会同时摄取 JD 与简历，按证据生成首题，并由 Interviewer、Assessor、Reporter 三个受约束子 Agent 驱动逐轮追问与报告。
+> 🧩 **求职投递搭档：[OfferPilot-plugin](https://github.com/zlr930/OfferPilot-plugin)**
+>
+> 自动填写简历与网申表单，减少重复录入。OfferPilot 帮你准备面试，配套插件帮你更轻松地完成投递。
 
-![OfferPilot banner](./assets/offerpilot-banner.jpg)
+### ✨ 为什么选择 OfferPilot？
 
-## Demo
+- **证据驱动**：同时读取 JD 与简历，围绕真实经历生成问题、追问与评分。
+- **完整闭环**：覆盖文本诊断、语音回答、自适应模拟面试和 Markdown / PDF 报告。
+- **可审计 Agent**：展示安全的执行轨迹与决策摘要，不暴露私有思维链和敏感材料。
+- **工程化后端**：Go typed Agent Harness + Next.js Web/BFF，不依赖 LangChain / LangGraph。
+
+项目也是 `zero2Agent` 学习体系的实战项目，将 Agent 工程知识、面试题库和架构设计落地为可运行系统。推荐使用 server-backed 部署：Next.js Web 通过受保护的 Go API 调用 LLM / ASR / TTS provider。
+
+![OfferPilot 产品界面](./assets/offerpilot-banner.jpg)
+
+## 🎬 Demo
 
 ### 录音回答诊断
 
@@ -82,7 +99,7 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 - 升级会自动把面试数据库迁移到 schema v3。生产升级前必须先做一致性备份；迁移
   与可恢复回滚步骤见 [Alpha 发布验证](./docs/v0.3.0-alpha.1-release-verification.md)。
 
-## 功能模块
+## 🚀 功能模块
 
 | 模块 | 能力 | 状态 |
 | --- | --- | --- |
@@ -96,7 +113,7 @@ OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。�
 | 多 Agent 协作 | 专家子 Agent + 并发池 | 已完成 |
 | 知识检索 | Markdown 原子问答块 + 内存 BM25 top-K（向量/重排为后续演进） | 已完成 |
 
-## 架构概览
+## 🏗️ 架构概览
 
 ```text
 backend/
@@ -158,7 +175,7 @@ DEEPSEEK_API_KEY=sk-...
 - Mimo ASR 按官方文档通过 `/chat/completions` 的 `input_audio` 调用。
 - 浏览器录音会先编码成 WAV，再上传给后端转写。
 
-## 快速开始
+## ⚡ 快速开始
 
 项目使用 Go 1.26 和 Node.js 24。`better-sqlite3` 只用于旧 CLI/API，已升级到支持 Node.js 24 的版本。
 

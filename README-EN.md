@@ -1,21 +1,37 @@
+<div align="center">
+
 # OfferPilot
 
-Current release: `v0.3.0-alpha.2` · [Changelog](./CHANGELOG.md) · [Alpha.2 verification](./docs/v0.3.0-alpha.2-release-verification.md) · [v0.3.0 roadmap](./docs/v0.3.0-optimization-plan.md)
+**Make every AI / LLM engineering interview grounded, actionable, and measurable.**
 
-OfferPilot is an AI interview diagnosis agent for AI Agent / LLM engineering interviews. Its primary backend is a typed Agent Harness written in Go, not a LangChain / LangGraph wrapper. Next.js owns the Web/BFF and document extraction, while Node.js 24 remains the frontend and legacy CLI runtime.
+An end-to-end AI interview agent for JD and resume analysis, adaptive mock interviews, voice diagnosis, and evidence-grounded reports.
 
-**Companion extension: [OfferPilot-plugin](https://github.com/zlr930/OfferPilot-plugin)** — A browser extension automatically fills resumes and online application forms to reduce repetitive data entry during job applications.
+[![CI](https://github.com/ranxi2001/OfferPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/ranxi2001/OfferPilot/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ranxi2001/OfferPilot?include_prereleases&label=release)](https://github.com/ranxi2001/OfferPilot/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](./backend)
+[![Node.js](https://img.shields.io/badge/Node.js-24-5FA04E?logo=nodedotjs&logoColor=white)](./package.json)
 
-It supports text diagnosis, resume/JD analysis, multi-provider LLM routing, sub-agent execution, streaming Web UI, and voice answer diagnosis with ASR.
+[中文](./README.md) · [Quick Start](#-quick-start) · [Features](#-features) · [Architecture](#-architecture) · [Changelog](./CHANGELOG.md)
 
-The recommended deployment mode is server-backed: the browser uses the Next.js
-Web app, and the Web app calls a protected Go API that owns provider
-credentials. Mock interviews ingest both the JD and resume, ground questions in
-evidence, and use constrained Interviewer, Assessor, and Reporter agents.
+</div>
 
-![OfferPilot banner](./assets/offerpilot-banner.jpg)
+> 🧩 **Job application companion: [OfferPilot-plugin](https://github.com/zlr930/OfferPilot-plugin)**
+>
+> Automatically fill resumes and online application forms with less repetitive data entry. OfferPilot prepares you for the interview; the companion extension helps you get there.
 
-## Demo
+### ✨ Why OfferPilot?
+
+- **Evidence-grounded**: reads the JD and resume together to generate questions, follow-ups, and assessments around real experience.
+- **End-to-end workflow**: covers text diagnosis, voice answers, adaptive mock interviews, and Markdown / PDF reports.
+- **Auditable agents**: exposes safe execution events and decision summaries without leaking private reasoning or sensitive material.
+- **Production-oriented**: built on a Go typed Agent Harness and Next.js Web/BFF, without LangChain or LangGraph.
+
+OfferPilot is also a practical implementation of the `zero2Agent` learning system, turning agent engineering concepts, interview knowledge, and architecture into a working application. The recommended server-backed deployment keeps LLM / ASR / TTS provider access behind the protected Go API.
+
+![OfferPilot product interface](./assets/offerpilot-banner.jpg)
+
+## 🎬 Demo
 
 ### Voice Answer Diagnosis
 
@@ -104,7 +120,7 @@ See [Alpha release verification](./docs/v0.3.0-alpha.1-release-verification.md) 
 - Fixed diagnostician sub-agent recursion by disabling tools for the diagnostician sub-agent and limiting it to one iteration.
 - Added Docker env pass-through for OpenAI-compatible and Mimo config.
 
-## Features
+## 🚀 Features
 
 | Module | Capability | Status |
 | --- | --- | --- |
@@ -119,7 +135,7 @@ See [Alpha release verification](./docs/v0.3.0-alpha.1-release-verification.md) 
 | Multi-agent runtime | Specialist sub-agents with concurrency pool | Done |
 | Knowledge search | Atomic Markdown question blocks + in-memory BM25 | Done |
 
-## Architecture
+## 🏗️ Architecture
 
 ```text
 backend/
@@ -176,7 +192,7 @@ Notes:
 - Mimo ASR is implemented through `/chat/completions` with `input_audio`, following the official Mimo documentation.
 - Browser recording is encoded as WAV before upload.
 
-## Quick Start
+## ⚡ Quick Start
 
 This project uses Go 1.26 and Node.js 24. `better-sqlite3` is now legacy-only and remains compatible with Node.js 24.
 
