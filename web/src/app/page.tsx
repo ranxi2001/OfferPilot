@@ -11,7 +11,9 @@ import { MatchView } from '@/components/MatchView';
 import { DashboardView } from '@/components/DashboardView';
 import { ExportButton } from '@/components/ExportButton';
 import { ConfigModal } from '@/components/ConfigModal';
-import { Compass, MessageSquare, FileText, BarChart3 } from 'lucide-react';
+import { ArrowDown, Compass, MessageSquare, FileText, BarChart3 } from 'lucide-react';
+
+const AUTO_SCROLL_THRESHOLD = 80;
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -23,10 +25,15 @@ export default function Home() {
   const [activeView, setActiveView] = useState<ViewType>('chat');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (shouldAutoScrollRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    }
   }, [messages]);
 
   useEffect(() => {
@@ -45,6 +52,9 @@ export default function Home() {
 
   async function sendMessage(content: string, opts?: { showUserMessage?: boolean }) {
     if (!content.trim() || isStreaming) return;
+
+    shouldAutoScrollRef.current = true;
+    setShowScrollToBottom(false);
 
     if (opts?.showUserMessage !== false) {
       const userMsg: Message = { id: Date.now().toString(), role: 'user', content };
@@ -204,7 +214,25 @@ export default function Home() {
 
   function handleReset() {
     setMessages([]);
+    shouldAutoScrollRef.current = true;
+    setShowScrollToBottom(false);
     createSession();
+  }
+
+  function handleMessagesScroll() {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const isNearBottom = distanceFromBottom <= AUTO_SCROLL_THRESHOLD;
+    shouldAutoScrollRef.current = isNearBottom;
+    setShowScrollToBottom(!isNearBottom);
+  }
+
+  function scrollToLatest() {
+    shouldAutoScrollRef.current = true;
+    setShowScrollToBottom(false);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }
 
   return (
@@ -249,19 +277,36 @@ export default function Home() {
 
         {activeView === 'chat' && (
           <>
-            <div className="flex-1 overflow-y-auto px-4 py-6">
-              <div className="mx-auto max-w-3xl space-y-5">
-                {messages.length === 0 && <WelcomeScreen onSend={sendMessage} />}
-                {messages.map((msg, i) => (
-                  <ChatMessage
-                    key={msg.id}
-                    message={msg}
-                    isStreaming={isStreaming && i === messages.length - 1 && msg.role === 'assistant'}
-                    isThinking={isThinking && i === messages.length - 1 && msg.role === 'assistant'}
-                  />
-                ))}
-                <div ref={messagesEndRef} />
+            <div className="relative min-h-0 flex-1">
+              <div
+                ref={messagesScrollRef}
+                onScroll={handleMessagesScroll}
+                className="h-full overflow-y-auto px-4 py-6"
+              >
+                <div className="mx-auto max-w-3xl space-y-5">
+                  {messages.length === 0 && <WelcomeScreen onSend={sendMessage} />}
+                  {messages.map((msg, i) => (
+                    <ChatMessage
+                      key={msg.id}
+                      message={msg}
+                      isStreaming={isStreaming && i === messages.length - 1 && msg.role === 'assistant'}
+                      isThinking={isThinking && i === messages.length - 1 && msg.role === 'assistant'}
+                    />
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
               </div>
+              {showScrollToBottom && (
+                <button
+                  type="button"
+                  onClick={scrollToLatest}
+                  className="absolute bottom-3 left-1/2 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-elevated transition-colors hover:border-accent/40 hover:text-accent"
+                  aria-label="回到最新消息"
+                  title="回到最新消息"
+                >
+                  <ArrowDown size={17} />
+                </button>
+              )}
             </div>
             <ChatInput
               onSend={sendMessage}
