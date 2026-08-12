@@ -4,6 +4,8 @@ Current release: `v0.3.0-alpha.2` · [Changelog](./CHANGELOG.md) · [Alpha.2 ver
 
 OfferPilot is an AI interview diagnosis agent for AI Agent / LLM engineering interviews. Its primary backend is a typed Agent Harness written in Go, not a LangChain / LangGraph wrapper. Next.js owns the Web/BFF and document extraction, while Node.js 24 remains the frontend and legacy CLI runtime.
 
+**Companion extension: [OfferPilot-plugin](https://github.com/zlr930/OfferPilot-plugin)** — A browser extension automatically fills resumes and online application forms to reduce repetitive data entry during job applications.
+
 It supports text diagnosis, resume/JD analysis, multi-provider LLM routing, sub-agent execution, streaming Web UI, and voice answer diagnosis with ASR.
 
 The recommended deployment mode is server-backed: the browser uses the Next.js

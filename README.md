@@ -6,6 +6,8 @@
 
 OfferPilot 是一个面向 AI Agent / LLM 工程面试的智能诊断 Agent。主后端使用 Go 实现 typed Agent Harness，不依赖 LangChain / LangGraph；Next.js 负责 Web/BFF 与文档解析，Node.js 24 继续承载前端和旧 CLI。
 
+**配套插件：[OfferPilot-plugin](https://github.com/zlr930/OfferPilot-plugin)** —— 自动填写简历和网申表单的浏览器插件，减少求职投递中的重复录入。
+
 项目同时也是 `zero2Agent` 学习体系的实战项目：把教程里的 Agent 工程知识、面试题库和架构拆解落地成可运行系统。
 
 当前推荐部署形态是 server-backed：浏览器访问 Next.js Web，Web 通过受保护的 Go API 调用 LLM / ASR / TTS provider。模拟面试会同时摄取 JD 与简历，按证据生成首题，并由 Interviewer、Assessor、Reporter 三个受约束子 Agent 驱动逐轮追问与报告。
