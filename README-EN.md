@@ -31,6 +31,14 @@ An end-to-end AI interview agent for JD and resume analysis, adaptive mock inter
 
 OfferPilot is also a practical implementation of the `zero2Agent` learning system, turning agent engineering concepts, interview knowledge, and architecture into a working application. The recommended server-backed deployment keeps LLM / ASR / TTS provider access behind the protected Go API.
 
+## 🛠️ v0.3.1 Stability Patch
+
+- Removes the obsolete `better-sqlite3` external-package configuration from Next.js.
+- `npm run dev` now checks port `3000` and the Next.js development lock before startup, preventing stale processes from causing port drift, broken assets, or blank pages.
+- The preflight reports conflicts but never terminates another process automatically.
+
+[Full changelog](./CHANGELOG.md#031---2026-08-13)
+
 ## 🎉 v0.3.0 General Availability
 
 OfferPilot's backend has moved from TypeScript to **Go**. The Go API now owns the typed Agent Harness, interview orchestration, per-question knowledge retrieval, SQLite persistence, and MiMo ASR / TTS. Next.js provides the Web/BFF and PDF, DOCX, and URL extraction.
@@ -220,6 +228,15 @@ Terminal 2: run the Web UI:
 cd web
 npm run dev
 ```
+
+If startup reports a busy port or `Another next dev server is already running`, find and stop the stale process first:
+
+```powershell
+netstat -ano | findstr :3000
+taskkill /PID <PID> /F
+```
+
+Do not run multiple `next dev` processes from the same `web` directory. For release testing, use `npm run build && npm run start`.
 
 Open:
 

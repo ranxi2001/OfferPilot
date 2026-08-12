@@ -31,6 +31,14 @@
 
 项目也是 `zero2Agent` 学习体系的实战项目，将 Agent 工程知识、面试题库和架构设计落地为可运行系统。推荐使用 server-backed 部署：Next.js Web 通过受保护的 Go API 调用 LLM / ASR / TTS provider。
 
+## 🛠️ v0.3.1 稳定性补丁
+
+- 清理 Next.js 中已不再使用的 `better-sqlite3` 外部包配置。
+- `npm run dev` 会在启动前检查 `3000` 端口和 Next.js 开发锁，避免残留进程导致端口漂移、静态资源失效或白屏。
+- 冲突检查只报告问题，不会自动结束其他进程。
+
+[查看完整更新记录](./CHANGELOG.md#031---2026-08-13)
+
 ## 🎉 v0.3.0 正式版
 
 OfferPilot 的后端已从 TypeScript 切换为 **Go**。Go API 现在承载 typed Agent Harness、面试编排、逐题知识检索、SQLite 持久化以及 MiMo ASR / TTS；Next.js 负责 Web/BFF 和 PDF、DOCX、URL 文档解析。
@@ -202,6 +210,15 @@ go run ./cmd/offerpilot-api
 cd web
 npm run dev
 ```
+
+若提示端口占用或 `Another next dev server is already running`，先找到并结束旧进程：
+
+```powershell
+netstat -ano | findstr :3000
+taskkill /PID <PID> /F
+```
+
+不要同时在同一个 `web` 目录运行多个 `next dev`。正式测试可使用 `npm run build && npm run start`。
 
 打开：
 

@@ -19,7 +19,7 @@ describe('release version contract', () => {
     const cliSource = readFileSync(resolve(process.cwd(), 'src/index.ts'), 'utf8');
     const goVersion = goVersionSource.match(/(?:const|var)\s+Version\s*=\s*"([^"]+)"/)?.[1];
 
-    expect(rootPackage.version).toBe('0.3.0');
+    expect(rootPackage.version).toBe('0.3.1');
     expect(webPackage.version).toBe(rootPackage.version);
     expect(rootLock.version).toBe(rootPackage.version);
     expect(rootLock.packages?.['']?.version).toBe(rootPackage.version);

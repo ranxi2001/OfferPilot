@@ -4,6 +4,23 @@
 [Semantic Versioning](https://semver.org/)，在 `1.0.0` 之前仍可能调整 API，
 但持久化数据变更必须提供向前迁移和回滚说明。
 
+## [0.3.1] - 2026-08-13
+
+这是 `0.3.0` Go 主后端正式版之后的 Web 开发体验稳定性补丁，不改变 API、数据库
+schema 或部署配置。
+
+### Fixed
+
+- 删除 Next.js 配置中迁移完成后遗留的 `better-sqlite3` external package 声明。
+- Web 开发服务器启动前检查目标端口和 `.next/dev/lock`。发现残留 Next.js 进程时
+  直接输出可执行的排障命令并退出，避免自动切换端口后继续争用同一开发锁。
+- 补充端口占用、重复 `next dev`、静态资源失效和白屏的排查说明。
+
+### Safety
+
+- 预检脚本只读检查端口与锁，不会自动结束进程或删除缓存文件。
+- 本版本没有数据库 migration，可直接从 `v0.3.0` 升级或回滚。
+
 ## [0.3.0] - 2026-08-12
 
 `0.3.0` 是 OfferPilot Go 主后端的首个正式版本。经过两个 Alpha 版本验证后，Go API
@@ -255,6 +272,7 @@ Profile 契约、Answer 幂等语义和持久化基础，不代表 `0.3.0` GA �
 
 下一版本计划见 [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)。
 
+[0.3.1]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0
 [0.3.0-alpha.2]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0-alpha.2
 [0.3.0-alpha.1]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0-alpha.1
