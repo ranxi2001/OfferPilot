@@ -25,6 +25,8 @@ export async function GET(req: NextRequest) {
       );
     }
     backendPath += `/events?after=${after}&limit=${limit}`;
+  } else if (resource === 'review') {
+    backendPath += '/review';
   } else if (resource) {
     return NextResponse.json(
       { error: { code: 'validation_error', message: 'resource is invalid', retryable: false, field: 'resource' } },

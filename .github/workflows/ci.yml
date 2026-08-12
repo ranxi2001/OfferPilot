@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  OFFERPILOT_RELEASE_VERSION: 0.3.1
+  OFFERPILOT_RELEASE_VERSION: 0.3.2
 
 jobs:
   test:

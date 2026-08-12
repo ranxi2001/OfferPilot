@@ -116,6 +116,7 @@ func New(config Config, dependencies Dependencies) (*Server, error) {
 	mux.HandleFunc("POST /api/interview/stream", server.requireAuth(server.handleInterviewStream))
 	mux.HandleFunc("POST /api/v1/interview", server.requireAuth(server.handleInterview))
 	mux.HandleFunc("GET /api/v1/interviews/{interviewId}", server.requireAuth(server.handleInterviewSnapshot))
+	mux.HandleFunc("GET /api/v1/interviews/{interviewId}/review", server.requireAuth(server.handleInterviewReview))
 	mux.HandleFunc("GET /api/v1/interviews/{interviewId}/events", server.requireAuth(server.handleInterviewEvents))
 	mux.HandleFunc("POST /api/transcribe", server.requireAuth(server.handleTranscribe))
 	mux.HandleFunc("POST /api/tts", server.requireAuth(server.handleTTS))

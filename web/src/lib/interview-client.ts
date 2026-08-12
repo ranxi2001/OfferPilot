@@ -4,6 +4,7 @@ import type {
   InterviewApiError,
   InterviewExecutionTrace,
   InterviewReport,
+  InterviewReviewSnapshot,
   InterviewSessionEventPage,
   InterviewSnapshot,
   ReportInterviewRequest,
@@ -156,6 +157,7 @@ export const interviewClient = {
   answer: (request: AnswerInterviewRequest, onTrace?: TraceListener) => postInterview<AnswerInterviewResponse>(request, onTrace),
   report: (request: ReportInterviewRequest, onTrace?: TraceListener) => postInterview<InterviewReport>(request, onTrace),
   snapshot: (interviewId: string, signal?: AbortSignal) => getInterview<InterviewSnapshot>(new URLSearchParams({ interviewId }), signal),
+  review: (interviewId: string, signal?: AbortSignal) => getInterview<InterviewReviewSnapshot>(new URLSearchParams({ interviewId, resource: 'review' }), signal),
   events: (interviewId: string, after = 0, limit = 100, signal?: AbortSignal) => getInterview<InterviewSessionEventPage>(new URLSearchParams({
     interviewId,
     resource: 'events',

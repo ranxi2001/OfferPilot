@@ -11,6 +11,7 @@ import {
   Check,
   Crosshair,
   Database,
+  Download,
   FileText,
   Gauge,
   Loader2,
@@ -41,6 +42,12 @@ import {
   writeExecutionHistory,
 } from '@/lib/execution-history';
 import { InterviewRequestError, interviewClient } from '@/lib/interview-client';
+import {
+  buildInterviewReviewHtml,
+  downloadInterviewReview,
+  recordingToDataUrl,
+  type ReviewRecording,
+} from '@/lib/interview-review-export';
 import {
   clearInterviewEventSequence,
   deriveRecoveredInterviewStage,
@@ -132,6 +139,7 @@ export function InterviewView() {
   const [canRetryTranscription, setCanRetryTranscription] = useState(false);
   const [executionRuns, setExecutionRuns] = useState<InterviewExecutionRun[]>([]);
   const [failedOperation, setFailedOperation] = useState<FailedOperation>(null);
+  const [exportingReview, setExportingReview] = useState(false);
 
   const answerStartedAt = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -149,6 +157,7 @@ export function InterviewView() {
   const clientAnswerRef = useRef<ClientAnswerDescriptor | null>(null);
   const pendingAnswerRef = useRef<AnswerInterviewRequest | null>(null);
   const questionSpeechRef = useRef<QuestionSpeechController | null>(null);
+  const reviewRecordingsRef = useRef(new Map<string, ReviewRecording>());
 
   function answerStorage(): ClientAnswerStorage | null {
     try {
@@ -514,6 +523,20 @@ export function InterviewView() {
       if (!isCurrentSubmission()) return;
       completeExecution(runId);
       pendingAnswerRef.current = null;
+      const submittedRecording = inputMode === 'voice'
+        ? voiceRecordingCacheRef.current.currentFor(interviewId, question.id)
+        : null;
+      if (submittedRecording) {
+        try {
+          reviewRecordingsRef.current.set(question.id, await recordingToDataUrl(
+            question.id,
+            submittedRecording.blob,
+            submittedRecording.durationMs,
+          ));
+        } catch {
+          // Textual review remains available if this browser cannot encode audio.
+        }
+      }
       clearCachedVoiceRecording();
       releaseRecordingResources();
       setFeedback(data.feedback);
@@ -605,6 +628,27 @@ export function InterviewView() {
     setBusyLabel('');
     setExecutionRuns([]);
     setFailedOperation(null);
+    reviewRecordingsRef.current.clear();
+  }
+
+  async function exportReview() {
+    if (!interviewId || exportingReview) return;
+    setExportingReview(true);
+    setError(null);
+    try {
+      const review = await interviewClient.review(interviewId);
+      downloadInterviewReview(buildInterviewReviewHtml({
+        review,
+        recordings: [...reviewRecordingsRef.current.values()],
+        executionRuns,
+      }), interviewId);
+    } catch (exportError) {
+      setError(exportError instanceof InterviewRequestError
+        ? `复盘导出失败：${exportError.message}`
+        : '复盘导出失败，请稍后重试。');
+    } finally {
+      setExportingReview(false);
+    }
   }
 
   function speakQuestion(text: string) {
@@ -848,13 +892,13 @@ export function InterviewView() {
   }
 
   if (phase === 'report' && report) {
-    return <ReportView report={report} turns={turns} executionRuns={executionRuns} onReset={resetInterview} />;
+    return <ReportView report={report} turns={turns} executionRuns={executionRuns} onReset={resetInterview} onExport={exportReview} exporting={exportingReview} />;
   }
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50/70 px-4 py-5 sm:px-6">
       <div className="mx-auto max-w-6xl space-y-4">
-        <InterviewTopbar progress={progress} config={config} onReset={resetInterview} />
+        <InterviewTopbar progress={progress} config={config} onReset={resetInterview} onExport={exportReview} exporting={exportingReview} canExport={turns.length > 0} />
         <StatusMessage
           error={error}
           busy={busy}
@@ -1078,7 +1122,14 @@ function StatusMessage({
   );
 }
 
-function InterviewTopbar({ progress, config, onReset }: { progress: InterviewProgress; config: InterviewConfig; onReset: () => void }) {
+function InterviewTopbar({ progress, config, onReset, onExport, exporting, canExport }: {
+  progress: InterviewProgress;
+  config: InterviewConfig;
+  onReset: () => void;
+  onExport: () => void;
+  exporting: boolean;
+  canExport: boolean;
+}) {
   return (
     <header className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-card">
       <div className="flex items-center gap-3">
@@ -1098,14 +1149,21 @@ function InterviewTopbar({ progress, config, onReset }: { progress: InterviewPro
           <span className="rounded bg-slate-100 px-2 py-1">{focusLabel(config.focus)}</span>
           <span className="rounded bg-slate-100 px-2 py-1">{difficultyLabel(config.difficulty)}</span>
         </div>
-        <button
-          type="button"
-          title="结束并重新设置"
-          onClick={onReset}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-primary"
-        >
-          <RotateCcw size={15} />
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            title="导出截至当前的完整复盘"
+            onClick={onExport}
+            disabled={!canExport || exporting}
+            className="flex h-9 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+            <span className="hidden sm:inline">导出复盘</span>
+          </button>
+          <button type="button" title="结束并重新设置" onClick={onReset} className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-primary">
+            <RotateCcw size={15} />
+          </button>
+        </div>
       </div>
     </header>
   );
@@ -1273,11 +1331,15 @@ function ReportView({
   turns,
   executionRuns,
   onReset,
+  onExport,
+  exporting,
 }: {
   report: InterviewReport;
   turns: InterviewTurn[];
   executionRuns: InterviewExecutionRun[];
   onReset: () => void;
+  onExport: () => void;
+  exporting: boolean;
 }) {
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50/70 px-4 py-5 sm:px-6">
@@ -1291,14 +1353,15 @@ function ReportView({
             <h2 className="text-xl font-bold text-primary">面试报告</h2>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">{report.summary}</p>
           </div>
-          <button
-            type="button"
-            onClick={onReset}
-            className="flex h-10 items-center gap-2 self-start rounded-md border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-600 hover:border-accent hover:text-accent"
-          >
-            <RotateCcw size={14} />
-            新面试
-          </button>
+          <div className="flex gap-2 self-start">
+            <button type="button" onClick={onExport} disabled={exporting} className="flex h-10 items-center gap-2 rounded-md bg-emerald-700 px-4 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">
+              {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              导出复盘
+            </button>
+            <button type="button" onClick={onReset} className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-600 hover:border-accent hover:text-accent">
+              <RotateCcw size={14} />新面试
+            </button>
+          </div>
         </header>
 
         <ExecutionTimeline runs={executionRuns} />

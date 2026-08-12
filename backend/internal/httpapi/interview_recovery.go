@@ -14,6 +14,24 @@ type interviewRecoveryService interface {
 	SessionEvents(context.Context, string, int64, int) (interview.SessionEventPage, error)
 }
 
+type interviewReviewService interface {
+	Review(context.Context, string) (interview.ReviewSnapshot, error)
+}
+
+func (s *Server) handleInterviewReview(response http.ResponseWriter, request *http.Request) {
+	recovery, ok := s.interview.(interviewReviewService)
+	if !ok {
+		writeAPIError(response, http.StatusServiceUnavailable, string(interview.CodeUnavailable), "Interview review is not configured", true, "")
+		return
+	}
+	review, err := recovery.Review(request.Context(), strings.TrimSpace(request.PathValue("interviewId")))
+	if err != nil {
+		writeInterviewError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, mapReview(review))
+}
+
 func (s *Server) handleInterviewSnapshot(response http.ResponseWriter, request *http.Request) {
 	recovery, ok := s.interview.(interviewRecoveryService)
 	if !ok {
@@ -104,5 +122,25 @@ func mapSnapshot(snapshot interview.SessionSnapshot) map[string]any {
 		"turns":           turns,
 		"progress":        mapProgress(snapshot.Progress),
 		"reportReady":     snapshot.ReportReady,
+	}
+}
+
+func mapReview(review interview.ReviewSnapshot) map[string]any {
+	turns := make([]map[string]any, 0, len(review.Turns))
+	for index, turn := range review.Turns {
+		turns = append(turns, map[string]any{
+			"question":   mapQuestion(turn.Question, index+1, nil),
+			"answer":     turn.Answer.Text,
+			"inputMode":  string(turn.Answer.InputMode),
+			"durationMs": turn.Answer.DurationMS,
+			"feedback":   mapFeedback(turn.Question.ID, turn.Feedback.Assessment, turn.Feedback.Summary, feedbackFocus(turn.Feedback.Focus)),
+			"references": turn.References,
+			"answeredAt": turn.AnsweredAt,
+		})
+	}
+	return map[string]any{
+		"schemaVersion": review.SchemaVersion, "interviewId": review.InterviewID,
+		"state": webState(review.State), "startedAt": review.StartedAt,
+		"generatedAt": review.GeneratedAt, "turns": turns,
 	}
 }

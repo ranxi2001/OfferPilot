@@ -4,6 +4,33 @@
 [Semantic Versioning](https://semver.org/)，在 `1.0.0` 之前仍可能调整 API，
 但持久化数据变更必须提供向前迁移和回滚说明。
 
+## [0.3.2] - 2026-08-13
+
+模拟面试新增可中途导出的完整 HTML 复盘档案，并提供稳定、版本化的 review 数据接口，
+作为后续复盘 Agent、错题聚类、能力趋势和训练计划的接入点。
+
+### Added
+
+- 新增受鉴权的 `GET /api/v1/interviews/{interviewId}/review`。接口只返回已回答轮次、
+  完整回答分析以及每题当时绑定的知识参考，不返回 Prompt、模型私有思维链、原始
+  JD/简历正文或其他题目的知识答案。
+- 模拟面试顶部和最终报告页新增“导出复盘”。导出的单文件 `.html` 包含题目、回答、
+  语音转写、回答录音、评分分析、改进建议、标准答案和安全 Agent 执行轨迹。
+- review schema 固定为 `1.0.0`，将 question、answer、feedback、reference、trace 和
+  recording 划分为稳定数据边界，便于后续 Agent 工具复用。
+
+### Security And Privacy
+
+- 普通 snapshot 和面试响应继续隐藏标准答案；只有用户显式导出时才通过受保护的
+  BFF 请求 review 数据。
+- 标准答案严格限定为当前题已固化的 per-question evidence bundle，不做额外全库检索。
+- 录音只保留在当前页面内存并以 data URL 嵌入导出文件，不上传到面试数据库。
+- HTML 对用户回答、题目、分析和轨迹文本做转义，避免导出文件执行输入中的 HTML。
+
+### Upgrade
+
+- 本版本没有数据库 migration，可直接从 `v0.3.1` 升级或回滚。
+
 ## [0.3.1] - 2026-08-13
 
 这是 `0.3.0` Go 主后端正式版之后的 Web 开发体验稳定性补丁，不改变 API、数据库
@@ -272,6 +299,7 @@ Profile 契约、Answer 幂等语义和持久化基础，不代表 `0.3.0` GA �
 
 下一版本计划见 [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)。
 
+[0.3.2]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.2
 [0.3.1]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0
 [0.3.0-alpha.2]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.0-alpha.2

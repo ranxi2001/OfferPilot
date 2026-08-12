@@ -198,6 +198,29 @@ export interface InterviewSessionEventPage {
   nextSequence: number;
 }
 
+export interface InterviewReviewReference {
+  evidenceId: string;
+  title: string;
+  answer: string;
+  locator?: string;
+}
+
+export interface InterviewReviewTurn extends InterviewTurn {
+  inputMode: 'text' | 'voice';
+  durationMs?: number;
+  references: InterviewReviewReference[];
+  answeredAt: string;
+}
+
+export interface InterviewReviewSnapshot {
+  schemaVersion: '1.0.0';
+  interviewId: string;
+  state: 'questioning' | 'completed';
+  startedAt: string;
+  generatedAt: string;
+  turns: InterviewReviewTurn[];
+}
+
 export interface ReportInterviewRequest {
   action: 'report';
   interviewId: string;

@@ -31,6 +31,16 @@ An end-to-end AI interview agent for JD and resume analysis, adaptive mock inter
 
 OfferPilot is also a practical implementation of the `zero2Agent` learning system, turning agent engineering concepts, interview knowledge, and architecture into a working application. The recommended server-backed deployment keeps LLM / ASR / TTS provider access behind the protected Go API.
 
+## 📚 v0.3.2 Mock Interview Review
+
+- Export a self-contained `.html` review at any point during the interview or from the final report.
+- Reviews include original questions, text answers or voice transcripts, answer recordings, per-turn analysis, standard answers, and knowledge evidence.
+- Safe Agent execution traces include steps, status, duration, and decision summaries without exposing private chain-of-thought.
+- A versioned `review` schema provides a stable integration point for future mistake clustering, skill trends, training plans, and review agents.
+- Recordings stay in current-page memory and are embedded in the exported file. Text review remains available after refresh, but released recordings cannot be recovered.
+
+[Full changelog](./CHANGELOG.md#032---2026-08-13)
+
 ## 🛠️ v0.3.1 Stability Patch
 
 - Removes the obsolete `better-sqlite3` external-package configuration from Next.js.
