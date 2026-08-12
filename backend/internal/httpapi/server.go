@@ -321,7 +321,7 @@ func (s *Server) handleChat(response http.ResponseWriter, request *http.Request)
 	active, ok := s.sessions.Get(input.SessionID)
 	if !ok {
 		var err error
-		active, err = s.sessions.Create()
+		active, err = s.sessions.Create(input.SessionID)
 		if err != nil {
 			writeAPIError(response, http.StatusInternalServerError, "session_create_failed", "Could not create session", true, "")
 			return

@@ -96,7 +96,9 @@ export default function Home() {
           try {
             const event = JSON.parse(data);
 
-            if (event.type === 'thinking_delta') {
+            if (event.type === 'session' && typeof event.sessionId === 'string') {
+              setSessionId(event.sessionId);
+            } else if (event.type === 'thinking_delta') {
               setIsThinking(true);
               setMessages((prev) =>
                 prev.map((m) =>
