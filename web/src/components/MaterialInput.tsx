@@ -61,8 +61,15 @@ export function MaterialInput({ label, description, emptyName, value, onChange }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
-      const data = await response.json() as { text?: string; title?: string; error?: string };
-      if (!response.ok || !data.text?.trim()) throw new Error(data.error || '没有提取到网页正文');
+      const data = await response.json() as {
+        text?: string;
+        title?: string;
+        error?: string | { message?: string };
+      };
+      if (!response.ok || !data.text?.trim()) {
+        const message = typeof data.error === 'string' ? data.error : data.error?.message;
+        throw new Error(message || '没有提取到网页正文');
+      }
       onChange({ name: data.title || url, text: data.text, source: 'url', url });
     } catch (err) {
       setError((err as Error).message);

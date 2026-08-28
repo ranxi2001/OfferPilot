@@ -19,6 +19,7 @@ const (
 type TraceEvent struct {
 	TraceID  string        `json:"traceId"`
 	AgentID  string        `json:"agentId"`
+	ToolName string        `json:"toolName,omitempty"`
 	Type     TraceType     `json:"type"`
 	At       time.Time     `json:"at"`
 	Wait     time.Duration `json:"wait,omitempty"`
@@ -51,10 +52,16 @@ func (r *Runtime) emit(ctx context.Context, event TraceEvent) {
 	case TraceError:
 		status = executiontrace.StatusFailed
 	}
+	stage := "agent"
+	label := "Run Harness agent"
+	if event.ToolName != "" {
+		stage = "tool"
+		label = "Run Function Tool"
+	}
 	requestEvent := executiontrace.Event{
 		ID:         event.TraceID,
-		Stage:      "agent",
-		Label:      "Run structured interview agent",
+		Stage:      stage,
+		Label:      label,
 		Status:     status,
 		Agent:      event.AgentID,
 		At:         event.At,
@@ -63,7 +70,11 @@ func (r *Runtime) emit(ctx context.Context, event TraceEvent) {
 	if event.Type == TraceError {
 		// The global Harness trace retains the original diagnostic. Request
 		// streams expose only a stable error class.
-		requestEvent.Detail = "agent call failed"
+		if event.ToolName != "" {
+			requestEvent.Detail = "function tool call failed"
+		} else {
+			requestEvent.Detail = "agent call failed"
+		}
 	}
 	executiontrace.Emit(ctx, requestEvent)
 }

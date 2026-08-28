@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { GitCompare, CheckCircle2, XCircle, ArrowRight, Briefcase, Sparkles, Upload } from 'lucide-react';
+import { AlertCircle, CheckCircle2, XCircle, ArrowRight, Sparkles } from 'lucide-react';
+import { MaterialInput } from '@/components/MaterialInput';
+import type { InterviewMaterial } from '@/types/interview';
 
 interface MatchResult {
   score: number;
@@ -10,74 +12,50 @@ interface MatchResult {
   suggestions: string[];
   level: string;
   focus: string[];
+  summary: string;
+  breakdown: {
+    mustHave: number;
+    responsibilities: number;
+    evidenceQuality: number;
+    bonus: number;
+  };
 }
 
-const MOCK_RESULT: MatchResult = {
-  score: 68,
-  matched: ['TypeScript', 'Node.js', 'React', 'LLM/GPT', 'Agent 架构', 'RAG', '向量数据库'],
-  missing: ['Kubernetes', 'gRPC', '分布式系统', '大规模数据处理', 'MLOps'],
-  suggestions: [
-    '在项目经历中补充容器化部署经验（Docker → K8s）',
-    '突出 Agent 系统的分布式调度设计',
-    '添加模型训练/微调相关经验或学习项目',
-    '强调数据 pipeline 经验（即使是 embedding pipeline）',
-  ],
-  level: '高级工程师 (P6-P7)',
-  focus: ['Agent 工程化', '系统架构', 'LLM 应用', '全栈交付'],
-};
+const scoreDimensions = [
+  ['mustHave', '硬性要求', 45],
+  ['responsibilities', '职责匹配', 25],
+  ['evidenceQuality', '履历证据', 20],
+  ['bonus', '加分项', 10],
+] as const;
 
 export function MatchView() {
-  const [jdContent, setJdContent] = useState('');
-  const [resumeContent, setResumeContent] = useState('');
+  const [jd, setJd] = useState<InterviewMaterial | null>(null);
+  const [resume, setResume] = useState<InterviewMaterial | null>(null);
   const [result, setResult] = useState<MatchResult | null>(null);
   const [isMatching, setIsMatching] = useState(false);
-  const [isParsing, setIsParsing] = useState(false);
-  const [resumeFileName, setResumeFileName] = useState<string | null>(null);
-
-  const handleResumeFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-    setResumeFileName(file.name);
-
-    const ext = file.name.toLowerCase().split('.').pop();
-    if (ext === 'txt' || ext === 'md') {
-      const reader = new FileReader();
-      reader.onload = (ev) => setResumeContent(ev.target?.result as string);
-      reader.readAsText(file);
-      return;
-    }
-
-    setIsParsing(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setResumeContent(data.text);
-    } catch {
-      setResumeFileName(null);
-    } finally {
-      setIsParsing(false);
-    }
-  };
+  const [error, setError] = useState<string | null>(null);
 
   const handleMatch = async () => {
-    if (!jdContent.trim() || !resumeContent.trim()) return;
+    if (!jd?.text.trim() || !resume?.text.trim()) return;
     setIsMatching(true);
+    setError(null);
+    setResult(null);
     try {
       const res = await fetch('/api/match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jd: jdContent, resume: resumeContent }),
+        body: JSON.stringify({ jd: jd.text, resume: resume.text }),
       });
-      const data = await res.json();
-      if (data.score !== undefined) {
-        setResult(data);
+      const data = await res.json() as MatchResult & {
+        error?: string | { message?: string };
+      };
+      if (!res.ok || data.score === undefined) {
+        const message = typeof data.error === 'string' ? data.error : data.error?.message;
+        throw new Error(message || '语义匹配失败');
       }
-    } catch {
-      setResult(MOCK_RESULT);
+      setResult(data);
+    } catch (cause) {
+      setError((cause as Error).message);
     } finally {
       setIsMatching(false);
     }
@@ -86,56 +64,28 @@ export function MatchView() {
   return (
     <div className="flex-1 overflow-y-auto px-6 py-6">
       <div className="mx-auto max-w-5xl space-y-6">
-        {/* Input section */}
         <div className="grid gap-4 lg:grid-cols-2">
-          {/* JD input */}
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card">
-            <div className="flex items-center gap-2 mb-3">
-              <Briefcase size={14} className="text-accent" />
-              <h3 className="text-sm font-semibold text-primary">职位描述 (JD)</h3>
-            </div>
-            <textarea
-              value={jdContent}
-              onChange={(e) => setJdContent(e.target.value)}
-              placeholder="粘贴 JD 内容...&#10;&#10;示例：&#10;- 岗位：AI Agent 工程师&#10;- 要求：3年以上 LLM 应用经验..."
-              rows={8}
-              className="w-full rounded-xl border border-slate-200 bg-surface-muted px-4 py-3 text-sm text-slate-700 placeholder-slate-400 outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 resize-none transition-all"
-            />
-          </div>
-
-          {/* Resume input */}
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <GitCompare size={14} className="text-cyan" />
-                <h3 className="text-sm font-semibold text-primary">简历内容</h3>
-              </div>
-              <label className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] text-slate-500 hover:border-accent hover:text-accent cursor-pointer transition-all">
-                <Upload size={11} />
-                {isParsing ? '解析中...' : '上传简历'}
-                <input type="file" accept=".pdf,.docx,.doc,.md,.txt,.tex" className="hidden" onChange={handleResumeFile} disabled={isParsing} />
-              </label>
-            </div>
-            {resumeFileName && (
-              <div className="flex items-center gap-2 mb-2 rounded-md bg-accent/5 px-2.5 py-1.5 text-[11px] text-accent-dark">
-                <span>{resumeFileName}</span>
-              </div>
-            )}
-            <textarea
-              value={resumeContent}
-              onChange={(e) => setResumeContent(e.target.value)}
-              placeholder="粘贴简历内容或上传 PDF 文件...&#10;&#10;技能和项目经历即可"
-              rows={8}
-              className="w-full rounded-xl border border-slate-200 bg-surface-muted px-4 py-3 text-sm text-slate-700 placeholder-slate-400 outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 resize-none transition-all"
-            />
-          </div>
+          <MaterialInput
+            label="职位描述（JD）"
+            description="岗位要求、职责与加分项"
+            emptyName="粘贴的职位描述"
+            value={jd}
+            onChange={setJd}
+          />
+          <MaterialInput
+            label="候选人简历"
+            description="项目经历、个人贡献与量化结果"
+            emptyName="粘贴的简历"
+            value={resume}
+            onChange={setResume}
+          />
         </div>
 
         {/* Action */}
         <div className="flex justify-center">
           <button
             onClick={handleMatch}
-            disabled={!jdContent.trim() || !resumeContent.trim() || isMatching}
+            disabled={!jd?.text.trim() || !resume?.text.trim() || isMatching}
             className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-accent to-cyan px-8 py-3 text-sm font-medium text-white shadow-elevated hover:shadow-glow disabled:opacity-50 transition-all"
           >
             {isMatching ? (
@@ -151,6 +101,13 @@ export function MatchView() {
             )}
           </button>
         </div>
+
+        {error && (
+          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <AlertCircle size={16} className="mt-0.5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
 
         {/* Results */}
         {result && (
@@ -191,6 +148,25 @@ export function MatchView() {
                   </div>
                 </div>
               </div>
+              <p className="mt-4 border-t border-slate-100 pt-4 text-sm leading-6 text-slate-600">
+                {result.summary}
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-4">
+                {scoreDimensions.map(([key, label, maximum]) => (
+                  <div key={key} className="min-w-0">
+                    <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                      <span>{label}</span>
+                      <span className="tabular-nums text-slate-700">{result.breakdown[key]}/{maximum}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-accent"
+                        style={{ width: `${Math.min(100, (result.breakdown[key] / maximum) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Matched vs Missing */}
@@ -199,7 +175,7 @@ export function MatchView() {
               <div className="rounded-2xl border border-emerald-200/80 bg-white p-5 shadow-card">
                 <div className="flex items-center gap-2 mb-3">
                   <CheckCircle2 size={14} className="text-emerald-500" />
-                  <h4 className="text-sm font-medium text-emerald-700">已匹配关键词</h4>
+                  <h4 className="text-sm font-medium text-emerald-700">已验证匹配</h4>
                   <span className="text-[11px] text-emerald-400 ml-auto">{result.matched.length} 项</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -215,7 +191,7 @@ export function MatchView() {
               <div className="rounded-2xl border border-red-200/80 bg-white p-5 shadow-card">
                 <div className="flex items-center gap-2 mb-3">
                   <XCircle size={14} className="text-red-400" />
-                  <h4 className="text-sm font-medium text-red-600">缺失关键词</h4>
+                  <h4 className="text-sm font-medium text-red-600">关键差距</h4>
                   <span className="text-[11px] text-red-300 ml-auto">{result.missing.length} 项</span>
                 </div>
                 <div className="flex flex-wrap gap-2">

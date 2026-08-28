@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.4.0] - 2026-08-29
+
+This release replaces mechanical JD matching and static URL scraping with
+typed Harness Agents, adds robust dynamic-job crawling, and fixes Chinese PDF
+resume extraction across development and production builds.
+
+### Added
+
+- Add the Go Harness `web_crawler` Agent with provider/embedded-data fast paths
+  and a bounded fallback loop over allowlisted `inspect_web_page` and
+  `fetch_web_resource` Function Tools, with safe tool-level execution traces.
+- Add authenticated `POST /api/v1/crawl` and keep Next.js `/api/parse-url` as a
+  thin BFF proxy to the Go Agent.
+- Add the evidence-weighted `resume_matcher` Harness Agent and authenticated
+  `POST /api/v1/match` endpoint for semantic JD/resume matching.
+
+### Fixed
+
+- Fetch dynamic Alibaba campus position details through the public page's
+  Cookie/CSRF-protected detail endpoint instead of returning the JavaScript
+  shell title as the JD.
+- Fetch ByteDance campus position details from its public job-post endpoint,
+  including title, responsibilities, requirements, location, type, and job ID.
+- Reuse the interview setup `MaterialInput` controls in JD matching, so both
+  workflows share upload, paste, URL crawling, editing, and error states.
+- Load the official PDF.js Node build with local packed CMaps and standard
+  fonts so Chinese CID-font resumes retain their Chinese text during upload.
+- Replace regex keyword-intersection matching and the frontend mock fallback
+  with the typed `resume_matcher` Harness Agent, evidence mappings, and a
+  validated four-dimension score breakdown.
+
+### Security
+
+- Restrict crawler URLs to HTTP(S), block credentials and private, loopback,
+  link-local, reserved, and redirected internal destinations, and bound
+  redirects, request time, and response size.
+
+### Upgrade
+
+- No database migration is required.
+- Run `npm install` and `npm --prefix web install` to install the pinned
+  `pdfjs-dist` runtime assets, then restart both the Go API and Next.js Web.
+- Crawler and matcher timeout settings are optional; existing deployments use
+  the documented defaults when the new variables are absent.
+
 ## [0.3.3] - 2026-08-13
 
 This patch release restores multi-turn context in conversational diagnosis, makes long streamed answers readable, and refreshes the Agent interview knowledge base.
@@ -317,6 +362,7 @@ Profile 契约、Answer 幂等语义和持久化基础，不代表 `0.3.0` GA �
 
 下一版本计划见 [v0.3.0 优化方案](./docs/v0.3.0-optimization-plan.md)。
 
+[0.4.0]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.4.0
 [0.3.3]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.3
 [0.3.2]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.2
 [0.3.1]: https://github.com/ranxi2001/OfferPilot/releases/tag/v0.3.1

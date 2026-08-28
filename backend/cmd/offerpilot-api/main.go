@@ -19,10 +19,12 @@ import (
 	"offerpilot/backend/internal/harness"
 	"offerpilot/backend/internal/httpapi"
 	"offerpilot/backend/internal/interview"
+	"offerpilot/backend/internal/jobmatch"
 	"offerpilot/backend/internal/knowledge"
 	"offerpilot/backend/internal/llm"
 	"offerpilot/backend/internal/session"
 	"offerpilot/backend/internal/speech"
+	"offerpilot/backend/internal/webcrawler"
 )
 
 func main() {
@@ -59,6 +61,8 @@ func main() {
 
 	var interviewAgent interview.Agent
 	var chatClient httpapi.ChatClient
+	var crawlerAgent *webcrawler.Agent
+	var matcherAgent *jobmatch.Agent
 	modelConfigured := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != ""
 	if modelConfigured {
 		modelClient, modelErr := llm.NewFromEnv()
@@ -70,7 +74,7 @@ func main() {
 			TraceCapacity: intEnv("OFFERPILOT_HARNESS_TRACE_CAPACITY", 512),
 			TraceSink: func(event harness.TraceEvent) {
 				if event.Type == harness.TraceError {
-					logger.Warn("harness call failed", "trace_id", event.TraceID, "agent", event.AgentID, "duration_ms", event.Duration.Milliseconds(), "error", event.Error)
+					logger.Warn("harness call failed", "trace_id", event.TraceID, "agent", event.AgentID, "tool", event.ToolName, "duration_ms", event.Duration.Milliseconds(), "error", event.Error)
 				}
 			},
 		})
@@ -80,6 +84,25 @@ func main() {
 		interviewAgent, err = harness.NewInterviewAgent(runtime)
 		if err != nil {
 			fatal("register interview agents", err)
+		}
+		crawlerAgent, err = webcrawler.NewAgentWithOptions(runtime, webcrawler.NewFetcher(webcrawler.Options{
+			RequestTimeout:       durationEnv("OFFERPILOT_CRAWLER_REQUEST_TIMEOUT", 10*time.Second),
+			MaxResponseBytes:     int64(intEnv("OFFERPILOT_CRAWLER_MAX_RESPONSE_BYTES", 2<<20)),
+			MaxRedirects:         intEnv("OFFERPILOT_CRAWLER_MAX_REDIRECTS", 3),
+			AllowBenchmarkTunnel: boolEnv("OFFERPILOT_ALLOW_TUN_FAKE_IP", !strings.EqualFold(os.Getenv("NODE_ENV"), "production")),
+		}), webcrawler.AgentOptions{
+			MaxFallbackIterations: intEnv("OFFERPILOT_CRAWLER_FALLBACK_MAX_ITERATIONS", 4),
+			FallbackTimeout:       durationEnv("OFFERPILOT_CRAWLER_FALLBACK_TIMEOUT", 90*time.Second),
+			DecisionTimeout:       durationEnv("OFFERPILOT_CRAWLER_DECISION_TIMEOUT", 60*time.Second),
+		})
+		if err != nil {
+			fatal("register web crawler agent", err)
+		}
+		matcherAgent, err = jobmatch.NewAgent(runtime, jobmatch.AgentOptions{
+			Timeout: durationEnv("OFFERPILOT_MATCHER_TIMEOUT", 90*time.Second),
+		})
+		if err != nil {
+			fatal("register resume matcher agent", err)
 		}
 		chatClient, err = chat.New(chat.Config{
 			APIKey:    os.Getenv("OPENAI_API_KEY"),
@@ -128,6 +151,7 @@ func main() {
 		MaxAudioBodyBytes: int64(intEnv("OFFERPILOT_MAX_AUDIO_BODY_BYTES", 25<<20)),
 		MaxMessageChars:   intEnv("OFFERPILOT_MAX_MESSAGE_CHARS", 20000),
 		MaxTTSTextChars:   intEnv("OFFERPILOT_MAX_TTS_TEXT_CHARS", 5000),
+		MaxURLChars:       intEnv("OFFERPILOT_MAX_URL_CHARS", 4096),
 		KnowledgeEntries:  index.Len(),
 		ModelConfigured:   modelConfigured,
 		SpeechConfigured:  speechConfigured,
@@ -135,6 +159,8 @@ func main() {
 		Interview: interviewService,
 		Chat:      chatClient,
 		Speech:    speechClient,
+		Crawler:   crawlerAgent,
+		Matcher:   matcherAgent,
 		Sessions:  session.NewStore(),
 		Memory:    session.NewMemory(40),
 		Logger:    logger,
@@ -155,6 +181,8 @@ func main() {
 			"database_path", databasePath,
 			"model_configured", modelConfigured,
 			"speech_configured", speechConfigured,
+			"crawler_configured", crawlerAgent != nil,
+			"matcher_configured", matcherAgent != nil,
 			"auth_required", authRequired,
 		)
 		if listenErr := server.ListenAndServe(); listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {

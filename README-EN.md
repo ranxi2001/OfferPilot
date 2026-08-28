@@ -31,6 +31,55 @@ An end-to-end AI interview agent for JD and resume analysis, adaptive mock inter
 
 OfferPilot is also a practical implementation of the `zero2Agent` learning system, turning agent engineering concepts, interview knowledge, and architecture into a working application. The recommended server-backed deployment keeps LLM / ASR / TTS provider access behind the protected Go API.
 
+## 🎬 Demo
+
+### Evidence-Weighted JD Matching
+
+After a JD and resume are uploaded, pasted, or fetched, the Go `resume_matcher` Harness Agent performs semantic scoring across hard requirements, responsibility alignment, resume evidence, and bonus qualifications. Results distinguish supported matches from material gaps and provide concrete preparation actions without relying on keyword intersection or fragmented phrases.
+
+![OfferPilot evidence-weighted JD matching](./assets/jd-match-semantic-analysis.png)
+
+### Voice Answer Diagnosis
+
+The Web UI supports recording or uploading an audio answer, transcribing it with Mimo ASR, then sending the transcript into the existing diagnosis agent. The audio is kept in the UI for replay and download so the same recording can be reused during testing.
+
+![Voice diagnosis demo](./assets/demo1.png)
+
+### Auditable Execution Trace
+
+Audio and mock-interview work is shown as a dedicated execution timeline instead of being rendered as duplicate chat messages. It preserves queued, running, completed, and failed steps with durations and safe decision summaries. Private model reasoning, prompts, JD/resume bodies, and knowledge reference answers are intentionally excluded.
+
+![Thought process card](./assets/cot.png)
+
+### Complete Mock-Interview Agent Trace
+
+Each answer keeps a continuous safe event history from receipt and validation through assessment, coverage planning, evidence retrieval, question generation, and persistence. This makes the Harness path and step timings directly inspectable.
+
+![Mock interview Agent execution trace](./assets/mock-interview-agent-trace.png)
+
+### Evidence-Grounded Answer Feedback
+
+Per-turn feedback presents supported points, remaining gaps, material checks, next-step strategy, and question evidence in one view so the basis for scoring and follow-up is visible.
+
+![Evidence-grounded mock interview feedback](./assets/mock-interview-evidence-feedback.png)
+
+### Markdown Report Output
+
+Assistant answers render GitHub-Flavored Markdown, including tables. Each diagnosis response can be copied or saved as a `.md` file.
+
+![Markdown diagnosis demo](./assets/demo2.png)
+
+An exported sample report is available in [demo.md](./assets/demo.md).
+
+## 🚀 v0.4.0 Semantic Matching And Dynamic Job Crawling
+
+- Adds the Go `resume_matcher` Harness Agent for evidence-weighted semantic scoring across hard requirements, responsibilities, resume evidence, and bonus qualifications instead of keyword intersection.
+- Adds the `web_crawler` Agent: known providers such as Alibaba and ByteDance use low-cost fast paths, while unknown SPAs enter a bounded Function Tool fallback.
+- Correctly extracts Chinese CID-font PDFs through local CMaps and an explicit PDF.js worker, verified in both development and production builds.
+- Reuses the same upload, paste, and URL material controls across JD matching and mock interviews.
+
+[Full v0.4.0 changelog](./CHANGELOG.md#040---2026-08-29)
+
 ## 🧠 v0.3.3 Continuous Diagnosis and Knowledge Update
 
 - Conversational diagnosis now preserves the interviewer's question, the candidate's answer, and prior feedback within the same session.
@@ -65,40 +114,6 @@ OfferPilot's backend has moved from TypeScript to **Go**. The Go API now owns th
 - **Complete voice workflow**: MiMo TTS by default, transient ASR retries, and failed-recording re-analysis.
 
 [Full changelog](./CHANGELOG.md#030---2026-08-12) · [Deployment guide](./docs/deployment.md) · [Upgrade from Alpha](./docs/v0.3.0-alpha.2-release-verification.md)
-
-## 🎬 Demo
-
-### Voice Answer Diagnosis
-
-The Web UI supports recording or uploading an audio answer, transcribing it with Mimo ASR, then sending the transcript into the existing diagnosis agent. The audio is kept in the UI for replay and download so the same recording can be reused during testing.
-
-![Voice diagnosis demo](./assets/demo1.png)
-
-### Auditable Execution Trace
-
-Audio and mock-interview work is shown as a dedicated execution timeline instead of being rendered as duplicate chat messages. It preserves queued, running, completed, and failed steps with durations and safe decision summaries. Private model reasoning, prompts, JD/resume bodies, and knowledge reference answers are intentionally excluded.
-
-![Thought process card](./assets/cot.png)
-
-### Complete Mock-Interview Agent Trace
-
-Each answer keeps a continuous safe event history from receipt and validation through assessment, coverage planning, evidence retrieval, question generation, and persistence. This makes the Harness path and step timings directly inspectable.
-
-![Mock interview Agent execution trace](./assets/mock-interview-agent-trace.png)
-
-### Evidence-Grounded Answer Feedback
-
-Per-turn feedback presents supported points, remaining gaps, material checks, next-step strategy, and question evidence in one view so the basis for scoring and follow-up is visible.
-
-![Evidence-grounded mock interview feedback](./assets/mock-interview-evidence-feedback.png)
-
-### Markdown Report Output
-
-Assistant answers render GitHub-Flavored Markdown, including tables. Each diagnosis response can be copied or saved as a `.md` file.
-
-![Markdown diagnosis demo](./assets/demo2.png)
-
-An exported sample report is available in [demo.md](./assets/demo.md).
 
 ## v0.3.0-alpha.2 Changes
 
@@ -164,7 +179,7 @@ See [Alpha release verification](./docs/v0.3.0-alpha.1-release-verification.md) 
 | Markdown report | Render tables, copy, save `.md` | Done |
 | JD analysis | Extract skill stack, seniority signal, preparation focus | Done |
 | Resume optimization | STAR, quantification, keywords, rewrite suggestions | Done |
-| Resume-JD matching | Coverage, missing items, targeted packaging | Done |
+| Resume-JD matching | Harness semantic scoring, evidence mappings, material gaps, seniority, and targeted preparation | Done |
 | Adaptive mock interview | JD + resume evidence, semantic assessment, dynamic follow-up, report | Done |
 | Realtime interview | TTS question, text/WAV answer, per-turn feedback | Done |
 | Multi-agent runtime | Specialist sub-agents with concurrency pool | Done |
@@ -177,6 +192,7 @@ backend/
   cmd/offerpilot-api/  Go API composition and graceful shutdown
   internal/harness/    typed agents, bounded concurrency, traces
   internal/interview/  evidence, assessment, policy, report aggregate
+  internal/jobmatch/   evidence-weighted JD/resume semantic matching Agent
   internal/knowledge/  question-level Markdown parser and BM25 search
   internal/httpapi/    auth, CORS, SSE, limits, Web compatibility DTOs
   internal/llm/        OpenAI-compatible structured model gateway

@@ -35,9 +35,23 @@ Optional:
   default.
 - `OFFERPILOT_HARNESS_MAX_CONCURRENT`: maximum concurrent typed Agent calls;
   defaults to `4`.
+- `OFFERPILOT_CRAWLER_REQUEST_TIMEOUT`,
+  `OFFERPILOT_CRAWLER_MAX_RESPONSE_BYTES`, and
+  `OFFERPILOT_CRAWLER_MAX_REDIRECTS`: bounds for the `web_crawler` Agent's
+  network Function Tools. The tools block private, loopback, link-local, and
+  reserved networks.
+- `OFFERPILOT_CRAWLER_FALLBACK_MAX_ITERATIONS` and
+  `OFFERPILOT_CRAWLER_FALLBACK_TIMEOUT`: total model/tool budget for unknown
+  dynamic sites after provider, embedded JSON, and static HTML fast paths fail.
+  Defaults are four model decisions and `90s`.
+- `OFFERPILOT_CRAWLER_DECISION_TIMEOUT`: per model decision timeout inside the
+  fallback loop; defaults to `60s` and remains bounded by the total fallback
+  timeout.
 - `OFFERPILOT_INTERVIEWER_TIMEOUT`, `OFFERPILOT_ASSESSOR_TIMEOUT`,
   `OFFERPILOT_REPORTER_TIMEOUT`, `OFFERPILOT_PLANNER_TIMEOUT`: wall-clock
   limits for each typed Agent. Defaults are `90s`, `180s`, `90s`, and `90s`.
+- `OFFERPILOT_MATCHER_TIMEOUT`: wall-clock limit for the evidence-weighted
+  `resume_matcher` Agent; defaults to `90s`.
 - `OPENAI_TIMEOUT`: per-provider request attempt; defaults to `90s`.
 - `OFFERPILOT_MAX_INTERVIEW_BODY_BYTES`: combined extracted JD/resume JSON
   limit; defaults to 2 MiB.

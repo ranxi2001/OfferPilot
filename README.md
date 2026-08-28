@@ -31,6 +31,55 @@
 
 项目也是 `zero2Agent` 学习体系的实战项目，将 Agent 工程知识、面试题库和架构设计落地为可运行系统。推荐使用 server-backed 部署：Next.js Web 通过受保护的 Go API 调用 LLM / ASR / TTS provider。
 
+## 🎬 Demo
+
+### 证据加权的 JD 匹配
+
+上传、粘贴或抓取 JD 与简历后，Go `resume_matcher` Harness Agent 会按硬性要求、职责匹配、履历证据和加分项四个维度进行语义评分。结果展示材料可支撑的匹配项、关键差距和可执行的定向准备建议，不使用关键词交集或截断词组充当分析。
+
+![OfferPilot 证据加权 JD 匹配效果](./assets/jd-match-semantic-analysis.png)
+
+### 录音回答诊断
+
+前端支持直接录音或上传音频。系统会把录音转成 WAV，调用 Mimo ASR 转写，再把转写文本送入现有面试诊断 Agent。录音会保留在页面里，方便回放和下载复测。
+
+![录音诊断 Demo](./assets/demo1.png)
+
+### 可审计处理轨迹
+
+录音与模拟面试处理不会再伪装成重复的用户消息，而是单独展示可审计执行轨迹。轨迹保留排队、执行、完成/失败、耗时和安全的决策摘要；模型私有原始思维文本、Prompt、简历/JD 正文和知识参考答案不会进入轨迹。
+
+![可审计处理轨迹](./assets/cot.png)
+
+### 完整模拟面试执行轨迹
+
+每轮回答从接收、校验、评估、覆盖规划、证据检索、出题到持久化都会保留连续的安全事件，便于核对 Agent Harness 实际执行了什么以及每一步耗时。
+
+![模拟面试 Agent 执行轨迹](./assets/mock-interview-agent-trace.png)
+
+### 证据化回答反馈
+
+逐轮反馈把成立点、待补漏洞、材料核对、下一步策略和本题证据放在同一视图中，让追问依据和评分边界可以直接检查。
+
+![模拟面试证据化回答反馈](./assets/mock-interview-evidence-feedback.png)
+
+### Markdown 诊断报告
+
+诊断结果支持 GitHub-Flavored Markdown，包含表格渲染。每条回答尾部提供复制和保存 `.md` 文档的快捷操作。
+
+![Markdown 诊断报告](./assets/demo2.png)
+
+导出的示例报告见：[demo.md](./assets/demo.md)。
+
+## 🚀 v0.4.0 语义匹配与动态职位抓取
+
+- 新增 Go `resume_matcher` Harness Agent，按硬性要求、职责、履历证据和加分项进行语义评分，不再使用关键词交集。
+- 新增 `web_crawler` Agent：阿里、字节等 Provider 走低成本快路径，未知 SPA 进入有界 Function Tool fallback。
+- 中文 CID 字体 PDF 通过本地 CMap 和 PDF.js worker 正确提取，开发与生产构建均完成真实文件验证。
+- JD 匹配与模拟面试复用统一材料输入，支持上传、粘贴和 URL 抓取。
+
+[查看 v0.4.0 完整更新记录](./CHANGELOG.md#040---2026-08-29)
+
 ## 🧠 v0.3.3 连续诊断与题库升级
 
 - 对话式诊断现在会保留同一会话内的面试官问题、候选人回答和历史诊断，语音回答不再脱离上一轮问题。
@@ -65,40 +114,6 @@ OfferPilot 的后端已从 TypeScript 切换为 **Go**。Go API 现在承载 typ
 - **更完整的语音体验**：MiMo TTS 主链路、瞬时 ASR 故障重试和失败录音重新分析。
 
 [查看完整更新记录](./CHANGELOG.md#030---2026-08-12) · [部署说明](./docs/deployment.md) · [从 Alpha 升级](./docs/v0.3.0-alpha.2-release-verification.md)
-
-## 🎬 Demo
-
-### 录音回答诊断
-
-前端支持直接录音或上传音频。系统会把录音转成 WAV，调用 Mimo ASR 转写，再把转写文本送入现有面试诊断 Agent。录音会保留在页面里，方便回放和下载复测。
-
-![录音诊断 Demo](./assets/demo1.png)
-
-### 可审计处理轨迹
-
-录音与模拟面试处理不会再伪装成重复的用户消息，而是单独展示可审计执行轨迹。轨迹保留排队、执行、完成/失败、耗时和安全的决策摘要；模型私有原始思维文本、Prompt、简历/JD 正文和知识参考答案不会进入轨迹。
-
-![可审计处理轨迹](./assets/cot.png)
-
-### 完整模拟面试执行轨迹
-
-每轮回答从接收、校验、评估、覆盖规划、证据检索、出题到持久化都会保留连续的安全事件，便于核对 Agent Harness 实际执行了什么以及每一步耗时。
-
-![模拟面试 Agent 执行轨迹](./assets/mock-interview-agent-trace.png)
-
-### 证据化回答反馈
-
-逐轮反馈把成立点、待补漏洞、材料核对、下一步策略和本题证据放在同一视图中，让追问依据和评分边界可以直接检查。
-
-![模拟面试证据化回答反馈](./assets/mock-interview-evidence-feedback.png)
-
-### Markdown 诊断报告
-
-诊断结果支持 GitHub-Flavored Markdown，包含表格渲染。每条回答尾部提供复制和保存 `.md` 文档的快捷操作。
-
-![Markdown 诊断报告](./assets/demo2.png)
-
-导出的示例报告见：[demo.md](./assets/demo.md)。
 
 ## v0.3.0-alpha.2 更新
 
@@ -142,7 +157,7 @@ OfferPilot 的后端已从 TypeScript 切换为 **Go**。Go API 现在承载 typ
 | 录音回答诊断 | 录音/上传音频 → ASR → 诊断 | 已完成 |
 | 自适应模拟面试 | JD + 简历证据 → Agent 出题 → 语义评估 → 动态追问 → 证据化报告 | 已完成 |
 | 简历分析 | 段落级诊断：STAR 结构、量化度、技术决策、个人贡献 | 已完成 |
-| JD 匹配 | 关键词覆盖率、缺失项、职级判断、定向包装建议 | 已完成 |
+| JD 匹配 | Harness 语义评分、证据映射、关键差距、职级判断与定向准备建议 | 已完成 |
 | 能力雷达 | 7 维度评分 + 学习路径推荐 + 诊断历史追踪 | 已完成 |
 | 报告导出 | Markdown / PDF 一键导出诊断报告 | 已完成 |
 | 多 Agent 协作 | 专家子 Agent + 并发池 | 已完成 |
@@ -155,6 +170,7 @@ backend/
   cmd/offerpilot-api/  Go API 装配与优雅退出
   internal/harness/    typed 子 Agent、并发边界、trace、结构化输出
   internal/interview/  面试聚合、证据、评估、策略与报告
+  internal/jobmatch/   JD / 简历证据加权语义匹配 Agent
   internal/knowledge/  Markdown 逐题解析与 BM25 检索
   internal/httpapi/    鉴权、CORS、SSE、限额与前端兼容投影
   internal/llm/        OpenAI-compatible 模型网关

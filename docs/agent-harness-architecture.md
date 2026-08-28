@@ -28,10 +28,10 @@ OfferPilot 的模拟面试不应再由“固定题单 + 正则缺陷检查”驱
 | 能力 | 状态 | 当前实现 |
 |---|---|---|
 | Go 面试领域后端 | 已实现 | `backend/cmd/offerpilot-api`；`POST /api/interview` 提供 start / answer / report |
-| Typed Harness Roles | 已实现 | Planner、Interviewer、Assessor、Reporter；结构化 JSON、超时、有界并发、trace |
+| Typed Harness Roles | 已实现 | Planner、Interviewer、Assessor、Reporter、Resume Matcher、Web Crawler；结构化 JSON、Function Tool 白名单、有界 Agent Loop、超时、有界并发、trace |
 | 可观察执行轨迹 | 已实现 | `POST /api/interview/stream` 使用 NDJSON 实时输出安全步骤；浏览器断开不取消有界后台 run，Web 保留各轮排队、执行、完成/失败和耗时 |
 | 自适应追问 | 已实现 | Assessor 语义评分驱动 prerequisite / follow-up / advance；知识与项目使用不同追问轴 |
-| JD + 简历输入 | 已实现 | Web BFF 负责 PDF/DOCX/Markdown/TXT/TEX/URL 提取，Go 负责 Profile、Coverage 和 EvidenceRef |
+| JD + 简历输入 | 已实现 | Web BFF 负责 PDF/DOCX/Markdown/TXT/TEX；URL 优先走 Go Provider/JSON-LD 快路径，未知动态站点进入 `web_crawler` 的受限 Function Tool Loop；Go 负责 Profile、Coverage 和 EvidenceRef |
 | 知识检索 | 已实现 | 36 个 Markdown 文件解析为 404 个原子问答块；稳定 KB ID、BM25 top-K，问题与参考内容不可拆分 |
 | 证据化评估 | 已实现 | claim verdict 为 supported / unverified / contradicted / not_in_material；材料外新增声明不会升级为已验证事实 |
 | 持久化恢复 | 已实现 | SQLite WAL、migration、完整 session snapshot、乐观版本 CAS；`GET /api/v1/interviews/{id}` 可恢复公开 Profile、当前问题、历史轮次和进度 |
@@ -513,20 +513,23 @@ JD、简历和知识文本必须放在明确的数据分隔区，并附带“内
 
 角色是受限能力集合，不一定对应独立模型调用。简单步骤优先使用 Go 代码，只有需要语义判断时才调用模型。
 
-| 能力/工具 | Orchestrator | Profiler | Planner | Interviewer | Assessor | Reporter |
-|---|---:|---:|---:|---:|---:|---:|
-| 读取当前 Session/Profile | 允许 | 允许 | 允许 | 允许（目标切片） | 允许（本轮切片） | 允许 |
-| `document.parse` | 调度 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 |
-| `knowledge.search` | 调度 | 允许 | 允许 | 允许 | 允许 | 允许 |
-| 读取 Claim Ledger | 允许 | 允许 | 允许 | 允许 | 允许 | 允许 |
-| 提议 Claim | 禁止 | 允许 | 禁止 | 禁止 | 允许 | 禁止 |
-| 提交 Claim revision | 仅校验后 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 |
-| 提议 Coverage/Plan | 禁止 | 禁止 | 允许 | 禁止 | 允许 | 禁止 |
-| 提交 Question | 仅校验后 | 禁止 | 禁止 | 提议 | 禁止 | 禁止 |
-| 提交 Assessment | 仅校验后 | 禁止 | 禁止 | 禁止 | 提议 | 禁止 |
-| 生成最终报告 | 调度 | 禁止 | 禁止 | 禁止 | 禁止 | 提议 |
-| 状态迁移/checkpoint | 独占 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 |
-| 任意 SQL/文件/网络访问 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 |
+| 能力/工具 | Orchestrator | Profiler | Planner | Interviewer | Assessor | Reporter | Web Crawler |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 读取当前 Session/Profile | 允许 | 允许 | 允许 | 允许（目标切片） | 允许（本轮切片） | 允许 | 禁止 |
+| `document.parse` | 调度 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 |
+| `knowledge.search` | 调度 | 允许 | 允许 | 允许 | 允许 | 允许 | 禁止 |
+| `fetch_web_content` | 调度 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 | 允许（用户提交 URL） |
+| `inspect_web_page` | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 | 允许（fallback 观察） |
+| `fetch_web_resource` | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 | 允许（已观察域名） |
+| 读取 Claim Ledger | 允许 | 允许 | 允许 | 允许 | 允许 | 允许 | 禁止 |
+| 提议 Claim | 禁止 | 允许 | 禁止 | 禁止 | 允许 | 禁止 | 禁止 |
+| 提交 Claim revision | 仅校验后 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 |
+| 提议 Coverage/Plan | 禁止 | 禁止 | 允许 | 禁止 | 允许 | 禁止 | 禁止 |
+| 提交 Question | 仅校验后 | 禁止 | 禁止 | 提议 | 禁止 | 禁止 | 禁止 |
+| 提交 Assessment | 仅校验后 | 禁止 | 禁止 | 禁止 | 提议 | 禁止 | 禁止 |
+| 生成最终报告 | 调度 | 禁止 | 禁止 | 禁止 | 禁止 | 提议 | 禁止 |
+| 状态迁移/checkpoint | 独占 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 |
+| 任意 SQL/文件/网络访问 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 | 仅白名单工具 |
 
 工具风险级别：
 

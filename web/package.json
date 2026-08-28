@@ -1,6 +1,6 @@
 {
   "name": "interview-diagnosis-web",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "private": true,
   "engines": {
     "node": ">=24 <25"
@@ -16,12 +16,12 @@
     "lucide-react": "^0.400.0",
     "mammoth": "^1.12.0",
     "next": "^16.2.12",
+    "pdfjs-dist": "6.2.108",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-markdown": "^9.0.0",
     "remark-gfm": "^4.0.1",
-    "undici": "^8.10.0",
-    "unpdf": "^1.6.2"
+    "undici": "^8.10.0"
   },
   "overrides": {
     "postcss": "8.5.24",

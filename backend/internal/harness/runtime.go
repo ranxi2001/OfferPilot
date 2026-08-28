@@ -23,6 +23,7 @@ var agentIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 type Agent struct {
 	ID           string        `json:"id"`
 	Description  string        `json:"description,omitempty"`
+	Tools        []string      `json:"tools,omitempty"`
 	SystemPrompt string        `json:"-"`
 	Timeout      time.Duration `json:"-"`
 }
@@ -39,6 +40,8 @@ type Runtime struct {
 
 	agentsMu sync.RWMutex
 	agents   map[string]Agent
+	toolsMu  sync.RWMutex
+	tools    map[string]FunctionTool
 
 	traceMu       sync.RWMutex
 	traces        []TraceEvent
@@ -60,6 +63,7 @@ func NewRuntime(client llm.StructuredClient, options Options) (*Runtime, error) 
 		client:        client,
 		sem:           make(chan struct{}, options.MaxConcurrent),
 		agents:        make(map[string]Agent),
+		tools:         make(map[string]FunctionTool),
 		traceCapacity: options.TraceCapacity,
 		traceSink:     options.TraceSink,
 	}, nil
@@ -79,6 +83,23 @@ func (r *Runtime) Register(agent Agent) error {
 	if agent.Timeout < 0 {
 		return fmt.Errorf("harness: agent %q has a negative timeout", agent.ID)
 	}
+	seenTools := make(map[string]struct{}, len(agent.Tools))
+	tools := make([]string, 0, len(agent.Tools))
+	for _, toolName := range agent.Tools {
+		toolName = strings.TrimSpace(toolName)
+		if !agentIDPattern.MatchString(toolName) {
+			return fmt.Errorf("harness: agent %q has invalid tool name %q", agent.ID, toolName)
+		}
+		if _, exists := r.Tool(toolName); !exists {
+			return fmt.Errorf("harness: agent %q references unregistered tool %q", agent.ID, toolName)
+		}
+		if _, duplicate := seenTools[toolName]; duplicate {
+			continue
+		}
+		seenTools[toolName] = struct{}{}
+		tools = append(tools, toolName)
+	}
+	agent.Tools = tools
 	r.agentsMu.Lock()
 	r.agents[agent.ID] = agent
 	r.agentsMu.Unlock()

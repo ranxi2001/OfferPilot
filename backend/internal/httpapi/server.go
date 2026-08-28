@@ -20,8 +20,10 @@ import (
 
 	"offerpilot/backend/internal/chat"
 	"offerpilot/backend/internal/interview"
+	"offerpilot/backend/internal/jobmatch"
 	"offerpilot/backend/internal/session"
 	"offerpilot/backend/internal/speech"
+	"offerpilot/backend/internal/webcrawler"
 )
 
 const chatSystemPrompt = `你是 OfferPilot，一名严谨的 AI Agent / LLM 工程面试教练。基于用户实际提供的问题和材料作答；区分事实、候选人陈述与推断，不编造简历经历。诊断回答时关注原理、个人职责、量化口径、方案取舍和边界条件，并给出可执行改进。`
@@ -41,6 +43,14 @@ type SpeechClient interface {
 	Synthesize(context.Context, speech.SynthesizeInput) (speech.Audio, error)
 }
 
+type WebCrawler interface {
+	Crawl(context.Context, webcrawler.Request) (webcrawler.Result, error)
+}
+
+type ResumeMatcher interface {
+	Match(context.Context, jobmatch.Request) (jobmatch.Result, error)
+}
+
 type Config struct {
 	Version             string
 	APIKey              string
@@ -51,6 +61,7 @@ type Config struct {
 	MaxAudioBodyBytes   int64
 	MaxMessageChars     int
 	MaxTTSTextChars     int
+	MaxURLChars         int
 	ReadHeaderTimeout   time.Duration
 	IdleTimeout         time.Duration
 	InterviewRunTimeout time.Duration
@@ -63,6 +74,8 @@ type Dependencies struct {
 	Interview InterviewService
 	Chat      ChatClient
 	Speech    SpeechClient
+	Crawler   WebCrawler
+	Matcher   ResumeMatcher
 	Sessions  *session.Store
 	Memory    *session.Memory
 	Logger    *slog.Logger
@@ -73,6 +86,8 @@ type Server struct {
 	interview InterviewService
 	chat      ChatClient
 	speech    SpeechClient
+	crawler   WebCrawler
+	matcher   ResumeMatcher
 	sessions  *session.Store
 	memory    *session.Memory
 	logger    *slog.Logger
@@ -101,6 +116,8 @@ func New(config Config, dependencies Dependencies) (*Server, error) {
 		interview: dependencies.Interview,
 		chat:      dependencies.Chat,
 		speech:    dependencies.Speech,
+		crawler:   dependencies.Crawler,
+		matcher:   dependencies.Matcher,
 		sessions:  dependencies.Sessions,
 		memory:    dependencies.Memory,
 		logger:    dependencies.Logger,
@@ -120,6 +137,10 @@ func New(config Config, dependencies Dependencies) (*Server, error) {
 	mux.HandleFunc("GET /api/v1/interviews/{interviewId}/events", server.requireAuth(server.handleInterviewEvents))
 	mux.HandleFunc("POST /api/transcribe", server.requireAuth(server.handleTranscribe))
 	mux.HandleFunc("POST /api/tts", server.requireAuth(server.handleTTS))
+	mux.HandleFunc("POST /api/crawl", server.requireAuth(server.handleCrawl))
+	mux.HandleFunc("POST /api/v1/crawl", server.requireAuth(server.handleCrawl))
+	mux.HandleFunc("POST /api/match", server.requireAuth(server.handleMatch))
+	mux.HandleFunc("POST /api/v1/match", server.requireAuth(server.handleMatch))
 	server.handler = server.withMiddleware(mux)
 	return server, nil
 }
@@ -153,6 +174,9 @@ func withDefaults(config Config) Config {
 	}
 	if config.MaxTTSTextChars <= 0 {
 		config.MaxTTSTextChars = 5000
+	}
+	if config.MaxURLChars <= 0 {
+		config.MaxURLChars = 4096
 	}
 	if config.ReadHeaderTimeout <= 0 {
 		config.ReadHeaderTimeout = 5 * time.Second
@@ -272,16 +296,18 @@ func (s *Server) healthPayload(status string) map[string]any {
 		harnessState = "not_ready"
 	}
 	return map[string]any{
-		"status":           status,
-		"service":          "offerpilot-go",
-		"version":          s.config.Version,
-		"live":             true,
-		"ready":            s.config.ModelConfigured,
-		"readiness":        harnessState,
-		"harness":          harnessState,
-		"modelConfigured":  s.config.ModelConfigured,
-		"speechConfigured": s.config.SpeechConfigured,
-		"knowledgeEntries": s.config.KnowledgeEntries,
+		"status":            status,
+		"service":           "offerpilot-go",
+		"version":           s.config.Version,
+		"live":              true,
+		"ready":             s.config.ModelConfigured,
+		"readiness":         harnessState,
+		"harness":           harnessState,
+		"modelConfigured":   s.config.ModelConfigured,
+		"speechConfigured":  s.config.SpeechConfigured,
+		"crawlerConfigured": s.crawler != nil,
+		"matcherConfigured": s.matcher != nil,
+		"knowledgeEntries":  s.config.KnowledgeEntries,
 	}
 }
 
