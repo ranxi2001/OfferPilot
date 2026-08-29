@@ -39,6 +39,12 @@
 
 ![OfferPilot 证据加权 JD 匹配效果](./assets/jd-match-semantic-analysis.png)
 
+### 多模态简历诊断
+
+上传 PDF 后，Go `resume_diagnostician` Harness Agent 会联合分析提取的文字证据与 PDF 页面视觉，识别真实语义章节，并从内容密度、工程证据、量化结果、技术决策和视觉版式等维度给出诊断。结果包含核心优势、主要风险、逐章节问题、可执行建议和可直接采用的改写，不再把整份简历压成一个段落套用规则模板。
+
+![OfferPilot 多模态简历诊断效果](./assets/resume-multimodal-diagnosis.png)
+
 ### 录音回答诊断
 
 前端支持直接录音或上传音频。系统会把录音转成 WAV，调用 Mimo ASR 转写，再把转写文本送入现有面试诊断 Agent。录音会保留在页面里，方便回放和下载复测。
@@ -70,6 +76,15 @@
 ![Markdown 诊断报告](./assets/demo2.png)
 
 导出的示例报告见：[demo.md](./assets/demo.md)。
+
+## 🚀 v0.4.1 多模态简历诊断
+
+- 新增 Go `resume_diagnostician` Harness Agent，联合分析简历文字证据与 PDF 页面视觉，不再套用规则模板。
+- 按真实语义章节输出核心优势、主要风险、版式评分、证据化问题、修改建议与可直接采用的改写。
+- OpenAI-compatible 模型边界新增结构化多模态输入，并对图片数量、请求体大小和执行时间设置明确上限。
+- 修复 PDF 文本被压成单段的问题，保留章节和项目符号换行，提升中文简历的证据定位质量。
+
+[查看 v0.4.1 完整更新记录](./CHANGELOG.md#041---2026-08-29)
 
 ## 🚀 v0.4.0 语义匹配与动态职位抓取
 
@@ -156,7 +171,7 @@ OfferPilot 的后端已从 TypeScript 切换为 **Go**。Go API 现在承载 typ
 | 面试诊断 | 输入问题和回答，输出评分、差距、改进建议 + 可审计执行轨迹 | 已完成 |
 | 录音回答诊断 | 录音/上传音频 → ASR → 诊断 | 已完成 |
 | 自适应模拟面试 | JD + 简历证据 → Agent 出题 → 语义评估 → 动态追问 → 证据化报告 | 已完成 |
-| 简历分析 | 段落级诊断：STAR 结构、量化度、技术决策、个人贡献 | 已完成 |
+| 简历分析 | 多模态 Harness：文字证据 + PDF 版式、语义章节、量化结果、技术决策与可用改写 | 已完成 |
 | JD 匹配 | Harness 语义评分、证据映射、关键差距、职级判断与定向准备建议 | 已完成 |
 | 能力雷达 | 7 维度评分 + 学习路径推荐 + 诊断历史追踪 | 已完成 |
 | 报告导出 | Markdown / PDF 一键导出诊断报告 | 已完成 |
@@ -171,6 +186,7 @@ backend/
   internal/harness/    typed 子 Agent、并发边界、trace、结构化输出
   internal/interview/  面试聚合、证据、评估、策略与报告
   internal/jobmatch/   JD / 简历证据加权语义匹配 Agent
+  internal/resumediagnosis/  多模态简历内容与版式诊断 Agent
   internal/knowledge/  Markdown 逐题解析与 BM25 检索
   internal/httpapi/    鉴权、CORS、SSE、限额与前端兼容投影
   internal/llm/        OpenAI-compatible 模型网关

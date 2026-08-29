@@ -1,13 +1,31 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Upload, FileText, CheckCircle, AlertTriangle, Star, ArrowRight, File, X, Globe, Type, Link2 } from 'lucide-react';
+import { Upload, FileText, CheckCircle, AlertTriangle, Star, ArrowRight, File, X, Globe, Type, Link2, Eye, Quote, WandSparkles } from 'lucide-react';
 
 interface DiagnosisItem {
   section: string;
   score: number;
+  evidence: string[];
   issues: string[];
   suggestions: string[];
+  rewrite: string;
+}
+
+interface ResumeDiagnosisResult {
+  overallScore: number;
+  summary: string;
+  strengths: string[];
+  risks: string[];
+  diagnosis: DiagnosisItem[];
+  layout: {
+    score: number;
+    summary: string;
+    issues: string[];
+    suggestions: string[];
+  };
+  mode: 'multimodal' | 'text_only';
+  agent: string;
 }
 
 type InputMode = 'file' | 'text' | 'url';
@@ -20,28 +38,36 @@ export function ResumeView() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [inputMode, setInputMode] = useState<InputMode>('file');
   const [urlInput, setUrlInput] = useState('');
-  const [diagnosis, setDiagnosis] = useState<DiagnosisItem[] | null>(null);
+  const [result, setResult] = useState<ResumeDiagnosisResult | null>(null);
+  const [pageImages, setPageImages] = useState<string[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAnalyze = async () => {
     if (!content.trim()) return;
     setIsAnalyzing(true);
+    setAnalysisError(null);
+    setResult(null);
     try {
       const res = await fetch('/api/resume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, images: pageImages }),
       });
-      const data = await res.json();
-      if (data.diagnosis) {
-        setDiagnosis(data.diagnosis);
+      const data = await res.json() as ResumeDiagnosisResult & {
+        error?: string | { message?: string };
+      };
+      if (!res.ok || !data.diagnosis) {
+        const message = typeof data.error === 'string' ? data.error : data.error?.message;
+        throw new Error(message || '简历诊断失败');
       }
-    } catch {
-      setDiagnosis(null);
+      setResult(data);
+    } catch (cause) {
+      setAnalysisError((cause as Error).message);
     } finally {
       setIsAnalyzing(false);
     }
@@ -55,11 +81,15 @@ export function ResumeView() {
     }
 
     setParseError(null);
+    setAnalysisError(null);
+    setResult(null);
+    setPageImages([]);
     setFileName(file.name);
     setIsParsing(true);
 
     try {
       if (ext === '.txt' || ext === '.md') {
+        setPageImages([]);
         const reader = new FileReader();
         reader.onload = (ev) => {
           setContent(ev.target?.result as string);
@@ -71,14 +101,17 @@ export function ResumeView() {
 
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData });
-      const data = await res.json();
+      const endpoint = ext === '.pdf' ? '/api/parse-pdf?render=1' : '/api/parse-pdf';
+      const res = await fetch(endpoint, { method: 'POST', body: formData });
+      const data = await res.json() as { text?: string; pageImages?: string[]; error?: string };
       if (!res.ok) throw new Error(data.error || '文件解析失败');
       if (!data.text?.trim()) throw new Error('无法提取文本内容（可能是扫描件/图片文件）');
       setContent(data.text);
+      setPageImages(data.pageImages ?? []);
     } catch (err) {
       setParseError((err as Error).message);
       setFileName(null);
+      setPageImages([]);
     } finally {
       setIsParsing(false);
     }
@@ -109,10 +142,14 @@ export function ResumeView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: urlInput }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '网页抓取失败');
+      const data = await res.json() as { text?: string; error?: string | { message?: string } };
+      if (!res.ok || !data.text?.trim()) {
+        const message = typeof data.error === 'string' ? data.error : data.error?.message;
+        throw new Error(message || '网页抓取失败');
+      }
       setContent(data.text);
       setFileName(urlInput);
+      setPageImages([]);
     } catch (err) {
       setParseError((err as Error).message);
     } finally {
@@ -123,14 +160,15 @@ export function ResumeView() {
   const clearAll = () => {
     setContent('');
     setFileName(null);
-    setDiagnosis(null);
+    setResult(null);
+    setPageImages([]);
     setParseError(null);
+    setAnalysisError(null);
     setUrlInput('');
   };
 
-  const overallScore = diagnosis
-    ? Math.round(diagnosis.reduce((sum, d) => sum + d.score, 0) / diagnosis.length * 10)
-    : 0;
+  const diagnosis = result?.diagnosis ?? null;
+  const overallScore = result?.overallScore ?? 0;
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -140,7 +178,7 @@ export function ResumeView() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-semibold text-primary">简历诊断</h3>
-              <p className="text-xs text-slate-400 mt-0.5">多种方式导入简历，获取 AI 段落级诊断</p>
+              <p className="text-xs text-slate-400 mt-0.5">文字证据 + PDF 页面视觉的 Harness 章节诊断</p>
             </div>
             {content && (
               <button onClick={clearAll} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-500 hover:border-red-200 hover:text-red-500 transition-all">
@@ -218,7 +256,7 @@ export function ResumeView() {
             <div>
               <textarea
                 value={content}
-                onChange={(e) => setContent(e.target.value)}
+                onChange={(e) => { setContent(e.target.value); setPageImages([]); setResult(null); }}
                 placeholder="在此粘贴简历内容...&#10;&#10;支持 Markdown 格式，建议包含：&#10;- 个人信息&#10;- 项目经历（附技术栈和成果）&#10;- 技能清单&#10;- 教育背景"
                 rows={12}
                 autoFocus
@@ -272,12 +310,17 @@ export function ResumeView() {
                 <div className="flex items-center gap-2 mb-3 rounded-lg bg-accent/5 border border-accent/10 px-3 py-2">
                   <File size={14} className="text-accent" />
                   <span className="text-xs font-medium text-accent-dark truncate">{fileName}</span>
+                  {pageImages.length > 0 && (
+                    <span className="shrink-0 rounded bg-cyan/10 px-2 py-0.5 text-[10px] font-medium text-cyan">
+                      视觉 + 文字 · {pageImages.length} 页
+                    </span>
+                  )}
                   <span className="text-[11px] text-slate-400 ml-auto shrink-0">{content.length} 字</span>
                 </div>
               )}
               <textarea
                 value={content}
-                onChange={(e) => setContent(e.target.value)}
+                onChange={(e) => { setContent(e.target.value); setResult(null); }}
                 rows={10}
                 className="w-full rounded-xl border border-slate-200 bg-surface-muted px-4 py-3 text-sm text-slate-700 placeholder-slate-400 outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 resize-none transition-all"
               />
@@ -289,6 +332,13 @@ export function ResumeView() {
             <div className="mt-3 flex items-center gap-2 rounded-lg bg-red-50 border border-red-100 px-3 py-2">
               <AlertTriangle size={13} className="text-red-400 shrink-0" />
               <span className="text-xs text-red-600">{parseError}</span>
+            </div>
+          )}
+
+          {analysisError && (
+            <div className="mt-3 flex items-center gap-2 rounded-lg bg-red-50 border border-red-100 px-3 py-2">
+              <AlertTriangle size={13} className="text-red-500 shrink-0" />
+              <span className="text-xs text-red-700">{analysisError}</span>
             </div>
           )}
 
@@ -322,13 +372,18 @@ export function ResumeView() {
         </div>
 
         {/* Results */}
-        {diagnosis && (
+        {result && diagnosis && (
           <div className="space-y-4 animate-slide-up">
             <div className="rounded-2xl border border-accent/20 bg-gradient-to-r from-accent/5 to-cyan/5 p-5 shadow-card">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-primary">诊断完成</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">共分析 {diagnosis.length} 个段落</p>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-primary">诊断完成</h3>
+                    <span className="rounded bg-white/70 px-2 py-0.5 text-[10px] font-medium text-accent">
+                      {result.mode === 'multimodal' ? '视觉 + 文字' : '仅文字'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">共分析 {diagnosis.length} 个语义章节 · {result.agent}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
@@ -340,7 +395,60 @@ export function ResumeView() {
                   </div>
                 </div>
               </div>
+              <p className="mt-4 border-t border-accent/10 pt-4 text-sm leading-6 text-slate-600">
+                {result.summary}
+              </p>
             </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <section className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-emerald-700">
+                  <CheckCircle size={14} />
+                  核心优势
+                </div>
+                <ul className="space-y-1.5">
+                  {result.strengths.map((strength) => (
+                    <li key={strength} className="text-xs leading-5 text-emerald-800">- {strength}</li>
+                  ))}
+                </ul>
+              </section>
+              <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-700">
+                  <AlertTriangle size={14} />
+                  主要风险
+                </div>
+                <ul className="space-y-1.5">
+                  {result.risks.map((risk) => (
+                    <li key={risk} className="text-xs leading-5 text-amber-800">- {risk}</li>
+                  ))}
+                </ul>
+              </section>
+            </div>
+
+            <section className="rounded-xl border border-cyan/20 bg-white p-4 shadow-card">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                    <Eye size={14} className="text-cyan" />
+                    视觉版式
+                  </div>
+                  <p className="mt-1.5 text-xs leading-5 text-slate-600">{result.layout.summary}</p>
+                </div>
+                <span className="shrink-0 text-sm font-semibold text-cyan">
+                  {result.mode === 'multimodal' ? `${result.layout.score}/10` : '未评估'}
+                </span>
+              </div>
+              {(result.layout.issues.length > 0 || result.layout.suggestions.length > 0) && (
+                <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
+                  <ul className="space-y-1 text-xs leading-5 text-slate-600">
+                    {result.layout.issues.map((issue) => <li key={issue}>问题：{issue}</li>)}
+                  </ul>
+                  <ul className="space-y-1 text-xs leading-5 text-slate-600">
+                    {result.layout.suggestions.map((suggestion) => <li key={suggestion}>建议：{suggestion}</li>)}
+                  </ul>
+                </div>
+              )}
+            </section>
 
             {diagnosis.map((item, i) => (
               <div key={i} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card">
@@ -364,6 +472,18 @@ export function ResumeView() {
                       {item.score}/10
                     </span>
                   </div>
+                </div>
+
+                <div className="mb-3 border-y border-slate-100 py-3">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+                    <Quote size={11} />
+                    简历证据
+                  </div>
+                  <ul className="space-y-1">
+                    {item.evidence.map((evidence) => (
+                      <li key={evidence} className="text-xs leading-5 text-slate-600">- {evidence}</li>
+                    ))}
+                  </ul>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -398,6 +518,14 @@ export function ResumeView() {
                       ))}
                     </ul>
                   </div>
+                </div>
+
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-accent-dark">
+                    <WandSparkles size={11} className="text-accent" />
+                    可直接使用的改写
+                  </div>
+                  <p className="text-xs leading-5 text-slate-700">{item.rewrite}</p>
                 </div>
               </div>
             ))}

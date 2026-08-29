@@ -140,11 +140,30 @@ func (r *Runtime) CallJSON(ctx context.Context, agentID, instruction, contextTex
 	return err
 }
 
+func (r *Runtime) CallJSONWithImages(ctx context.Context, agentID, instruction, contextText string, images []llm.ImageInput, out any) error {
+	_, err := r.CallJSONWithImagesTrace(ctx, agentID, instruction, contextText, images, out)
+	return err
+}
+
 // CallJSONTrace is CallJSON with the trace identifier returned to callers that
 // need to correlate an HTTP request with queued/start/finish events.
 // contextText is explicitly marked as reference material so uploaded resume/JD
 // content does not silently become a system-level instruction.
 func (r *Runtime) CallJSONTrace(ctx context.Context, agentID, instruction, contextText string, out any) (string, error) {
+	return r.callJSONTrace(ctx, agentID, instruction, contextText, out, r.client.ChatJSON)
+}
+
+func (r *Runtime) CallJSONWithImagesTrace(ctx context.Context, agentID, instruction, contextText string, images []llm.ImageInput, out any) (string, error) {
+	visionClient, ok := r.client.(llm.StructuredVisionClient)
+	if !ok {
+		return "", errors.New("harness: structured vision client is not available")
+	}
+	return r.callJSONTrace(ctx, agentID, instruction, contextText, out, func(callCtx context.Context, messages []llm.Message, output any) error {
+		return visionClient.ChatJSONWithImages(callCtx, messages, images, output)
+	})
+}
+
+func (r *Runtime) callJSONTrace(ctx context.Context, agentID, instruction, contextText string, out any, invoke func(context.Context, []llm.Message, any) error) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -187,7 +206,7 @@ func (r *Runtime) CallJSONTrace(ctx context.Context, agentID, instruction, conte
 		{Role: llm.RoleSystem, Content: agent.SystemPrompt},
 		{Role: llm.RoleUser, Content: buildUserMessage(instruction, contextText)},
 	}
-	err := r.client.ChatJSON(callCtx, messages, out)
+	err := invoke(callCtx, messages, out)
 	finishedAt := time.Now().UTC()
 	if err != nil {
 		r.emit(ctx, TraceEvent{

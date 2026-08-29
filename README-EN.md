@@ -39,6 +39,12 @@ After a JD and resume are uploaded, pasted, or fetched, the Go `resume_matcher` 
 
 ![OfferPilot evidence-weighted JD matching](./assets/jd-match-semantic-analysis.png)
 
+### Multimodal Resume Diagnosis
+
+After a PDF is uploaded, the Go `resume_diagnostician` Harness Agent jointly analyzes extracted text evidence and rendered PDF pages. It identifies semantic sections and evaluates content density, engineering evidence, quantified outcomes, technical decisions, and visual layout. Results include strengths, risks, section-level findings, actionable guidance, and ready-to-use rewrites instead of reducing the entire resume to one paragraph and applying a rule template.
+
+![OfferPilot multimodal resume diagnosis](./assets/resume-multimodal-diagnosis.png)
+
 ### Voice Answer Diagnosis
 
 The Web UI supports recording or uploading an audio answer, transcribing it with Mimo ASR, then sending the transcript into the existing diagnosis agent. The audio is kept in the UI for replay and download so the same recording can be reused during testing.
@@ -70,6 +76,15 @@ Assistant answers render GitHub-Flavored Markdown, including tables. Each diagno
 ![Markdown diagnosis demo](./assets/demo2.png)
 
 An exported sample report is available in [demo.md](./assets/demo.md).
+
+## 🚀 v0.4.1 Multimodal Resume Diagnosis
+
+- Adds the Go `resume_diagnostician` Harness Agent to jointly analyze resume text evidence and rendered PDF pages instead of applying rule templates.
+- Produces semantic sections, strengths, risks, layout scoring, evidence-grounded findings, actionable guidance, and ready-to-use rewrites.
+- Adds structured multimodal input to the OpenAI-compatible model boundary with explicit limits for images, request size, and execution time.
+- Preserves PDF section and bullet line breaks instead of flattening the resume, improving evidence localization for Chinese resumes.
+
+[Full v0.4.1 changelog](./CHANGELOG.md#041---2026-08-29)
 
 ## 🚀 v0.4.0 Semantic Matching And Dynamic Job Crawling
 
@@ -178,7 +193,7 @@ See [Alpha release verification](./docs/v0.3.0-alpha.1-release-verification.md) 
 | Voice answer diagnosis | Record/upload audio -> ASR -> diagnosis | Done |
 | Markdown report | Render tables, copy, save `.md` | Done |
 | JD analysis | Extract skill stack, seniority signal, preparation focus | Done |
-| Resume optimization | STAR, quantification, keywords, rewrite suggestions | Done |
+| Resume optimization | Multimodal Harness diagnosis across text evidence, PDF layout, semantic sections, metrics, decisions, and rewrites | Done |
 | Resume-JD matching | Harness semantic scoring, evidence mappings, material gaps, seniority, and targeted preparation | Done |
 | Adaptive mock interview | JD + resume evidence, semantic assessment, dynamic follow-up, report | Done |
 | Realtime interview | TTS question, text/WAV answer, per-turn feedback | Done |
@@ -193,6 +208,7 @@ backend/
   internal/harness/    typed agents, bounded concurrency, traces
   internal/interview/  evidence, assessment, policy, report aggregate
   internal/jobmatch/   evidence-weighted JD/resume semantic matching Agent
+  internal/resumediagnosis/  multimodal resume content and layout diagnosis Agent
   internal/knowledge/  question-level Markdown parser and BM25 search
   internal/httpapi/    auth, CORS, SSE, limits, Web compatibility DTOs
   internal/llm/        OpenAI-compatible structured model gateway

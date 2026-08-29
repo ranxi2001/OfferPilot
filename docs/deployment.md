@@ -52,6 +52,11 @@ Optional:
   limits for each typed Agent. Defaults are `90s`, `180s`, `90s`, and `90s`.
 - `OFFERPILOT_MATCHER_TIMEOUT`: wall-clock limit for the evidence-weighted
   `resume_matcher` Agent; defaults to `90s`.
+- `OFFERPILOT_RESUME_DIAGNOSTICIAN_TIMEOUT`: wall-clock limit for the
+  multimodal `resume_diagnostician` Agent; defaults to `120s`.
+- `OFFERPILOT_MAX_RESUME_DIAGNOSIS_BODY_BYTES`: combined text and rendered-page
+  request limit for resume diagnosis; defaults to 12 MiB. At most three bounded
+  JPEG/PNG data URLs are accepted.
 - `OPENAI_TIMEOUT`: per-provider request attempt; defaults to `90s`.
 - `OFFERPILOT_MAX_INTERVIEW_BODY_BYTES`: combined extracted JD/resume JSON
   limit; defaults to 2 MiB.

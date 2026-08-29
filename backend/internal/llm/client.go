@@ -22,11 +22,27 @@ type Client struct {
 }
 
 type completionRequest struct {
-	Model          string         `json:"model"`
-	Messages       []Message      `json:"messages"`
-	ResponseFormat map[string]any `json:"response_format,omitempty"`
-	MaxTokens      int            `json:"max_tokens,omitempty"`
-	Temperature    *float64       `json:"temperature,omitempty"`
+	Model          string              `json:"model"`
+	Messages       []completionMessage `json:"messages"`
+	ResponseFormat map[string]any      `json:"response_format,omitempty"`
+	MaxTokens      int                 `json:"max_tokens,omitempty"`
+	Temperature    *float64            `json:"temperature,omitempty"`
+}
+
+type completionMessage struct {
+	Role    Role `json:"role"`
+	Content any  `json:"content"`
+}
+
+type visionContentPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ImageURL *visionImageURL `json:"image_url,omitempty"`
+}
+
+type visionImageURL struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type completionResponse struct {
@@ -120,6 +136,56 @@ func (c *Client) ChatJSON(ctx context.Context, messages []Message, out any) erro
 	}
 }
 
+// ChatJSONWithImages is ChatJSON with images attached to the final user
+// message using the OpenAI-compatible image_url content-part contract.
+func (c *Client) ChatJSONWithImages(ctx context.Context, messages []Message, images []ImageInput, out any) error {
+	if len(images) == 0 {
+		return c.ChatJSON(ctx, messages, out)
+	}
+	if err := validateOutputTarget(out); err != nil {
+		return err
+	}
+	schema, err := schemaFor(out)
+	if err != nil {
+		return err
+	}
+	wireMessages := multimodalMessages(messages, images)
+	content, err := c.completeMessages(ctx, wireMessages, strictResponseFormat(schema))
+	if err != nil && schemaUnsupported(err) {
+		encodedSchema, _ := json.Marshal(schema)
+		wireMessages = appendCompletionCopy(wireMessages, completionMessage{
+			Role: RoleUser, Content: "Return exactly one JSON object matching this JSON Schema, with no Markdown or commentary:\n" + string(encodedSchema),
+		})
+		content, err = c.completeMessages(ctx, wireMessages, map[string]any{"type": "json_object"})
+		if err != nil {
+			return err
+		}
+		if decodeErr := DecodeJSON(content, out); decodeErr != nil {
+			return fmt.Errorf("llm: invalid multimodal structured response after one compatibility fallback: %w", decodeErr)
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if decodeErr := DecodeJSON(content, out); decodeErr == nil {
+		return nil
+	} else {
+		repair := appendCompletionCopy(wireMessages,
+			completionMessage{Role: RoleAssistant, Content: compactForPrompt(content, 12000)},
+			completionMessage{Role: RoleUser, Content: "Return the same answer again as one valid JSON object matching the required schema. Do not use Markdown fences or add commentary. Fix this validation error: " + decodeErr.Error()},
+		)
+		repaired, repairErr := c.completeMessages(ctx, repair, strictResponseFormat(schema))
+		if repairErr != nil {
+			return fmt.Errorf("llm: repair multimodal structured response: %w", repairErr)
+		}
+		if finalErr := DecodeJSON(repaired, out); finalErr != nil {
+			return fmt.Errorf("llm: invalid multimodal structured response after one repair: %w", finalErr)
+		}
+		return nil
+	}
+}
+
 func strictResponseFormat(schema map[string]any) map[string]any {
 	return map[string]any{
 		"type": "json_schema",
@@ -146,6 +212,14 @@ func appendCopy(messages []Message, extra ...Message) []Message {
 }
 
 func (c *Client) complete(ctx context.Context, messages []Message, format map[string]any) (string, error) {
+	wireMessages := make([]completionMessage, 0, len(messages))
+	for _, message := range messages {
+		wireMessages = append(wireMessages, completionMessage{Role: message.Role, Content: message.Content})
+	}
+	return c.completeMessages(ctx, wireMessages, format)
+}
+
+func (c *Client) completeMessages(ctx context.Context, messages []completionMessage, format map[string]any) (string, error) {
 	request := completionRequest{
 		Model:          c.config.Model,
 		Messages:       messages,
@@ -175,6 +249,38 @@ func (c *Client) complete(ctx context.Context, messages []Message, format map[st
 		}
 	}
 	return "", fmt.Errorf("llm: request failed after %d attempts: %w", c.config.MaxRetries+1, lastErr)
+}
+
+func multimodalMessages(messages []Message, images []ImageInput) []completionMessage {
+	result := make([]completionMessage, 0, len(messages))
+	lastUser := -1
+	for index, message := range messages {
+		result = append(result, completionMessage{Role: message.Role, Content: message.Content})
+		if message.Role == RoleUser {
+			lastUser = index
+		}
+	}
+	if lastUser < 0 {
+		return result
+	}
+	parts := []visionContentPart{{Type: "text", Text: messages[lastUser].Content}}
+	for _, image := range images {
+		detail := strings.TrimSpace(image.Detail)
+		if detail == "" {
+			detail = "high"
+		}
+		parts = append(parts, visionContentPart{
+			Type: "image_url", ImageURL: &visionImageURL{URL: image.URL, Detail: detail},
+		})
+	}
+	result[lastUser].Content = parts
+	return result
+}
+
+func appendCompletionCopy(messages []completionMessage, extra ...completionMessage) []completionMessage {
+	result := make([]completionMessage, 0, len(messages)+len(extra))
+	result = append(result, messages...)
+	return append(result, extra...)
 }
 
 func (c *Client) doRequest(parent context.Context, body []byte) (string, error) {

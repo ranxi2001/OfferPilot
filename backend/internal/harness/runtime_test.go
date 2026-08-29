@@ -73,6 +73,44 @@ type failingStructuredClient struct {
 	err error
 }
 
+type visionTrackingClient struct {
+	images []llm.ImageInput
+}
+
+func (client *visionTrackingClient) ChatJSON(context.Context, []llm.Message, any) error {
+	return nil
+}
+
+func (client *visionTrackingClient) ChatJSONWithImages(_ context.Context, _ []llm.Message, images []llm.ImageInput, out any) error {
+	client.images = append([]llm.ImageInput(nil), images...)
+	return nil
+}
+
+func TestRuntimeRoutesMultimodalCallsThroughRegisteredAgentTrace(t *testing.T) {
+	client := &visionTrackingClient{}
+	runtime, err := NewRuntime(client, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Register(Agent{ID: "resume_diagnostician", SystemPrompt: "Inspect text and layout."}); err != nil {
+		t.Fatal(err)
+	}
+	var output struct{}
+	traceID, err := runtime.CallJSONWithImagesTrace(
+		context.Background(), "resume_diagnostician", "diagnose", "resume text",
+		[]llm.ImageInput{{URL: "data:image/jpeg;base64,abc", Detail: "high"}}, &output,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.images) != 1 || client.images[0].URL == "" {
+		t.Fatalf("images=%#v", client.images)
+	}
+	if traces := runtime.Traces(traceID); len(traces) != 3 || traces[2].Type != TraceSucceeded {
+		t.Fatalf("traces=%#v", traces)
+	}
+}
+
 func (client *failingStructuredClient) ChatJSON(context.Context, []llm.Message, any) error {
 	return client.err
 }

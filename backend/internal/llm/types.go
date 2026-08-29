@@ -22,3 +22,12 @@ type Message struct {
 type StructuredClient interface {
 	ChatJSON(ctx context.Context, messages []Message, out any) error
 }
+
+type ImageInput struct {
+	URL    string
+	Detail string
+}
+
+type StructuredVisionClient interface {
+	ChatJSONWithImages(ctx context.Context, messages []Message, images []ImageInput, out any) error
+}

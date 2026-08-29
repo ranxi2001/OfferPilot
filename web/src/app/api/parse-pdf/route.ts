@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import mammoth from 'mammoth';
 import { MAX_UPLOAD_BODY_BYTES, payloadTooLarge, rejectIfContentLengthExceeds } from '@/lib/api-security';
-import { extractPdfText } from '@/lib/pdf-text';
+import { extractPdfDocument } from '@/lib/pdf-text';
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,8 +22,10 @@ export async function POST(req: NextRequest) {
     const buffer = new Uint8Array(await file.arrayBuffer());
 
     if (name.endsWith('.pdf')) {
-      const { text, totalPages } = await extractPdfText(buffer);
-      return NextResponse.json({ text, pages: totalPages, format: 'pdf' });
+      const { text, totalPages, pageImages } = await extractPdfDocument(buffer, {
+        renderPages: req.nextUrl.searchParams.get('render') === '1',
+      });
+      return NextResponse.json({ text, pages: totalPages, pageImages, format: 'pdf' });
     }
 
     if (name.endsWith('.docx') || name.endsWith('.doc')) {

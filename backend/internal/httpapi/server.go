@@ -21,6 +21,7 @@ import (
 	"offerpilot/backend/internal/chat"
 	"offerpilot/backend/internal/interview"
 	"offerpilot/backend/internal/jobmatch"
+	"offerpilot/backend/internal/resumediagnosis"
 	"offerpilot/backend/internal/session"
 	"offerpilot/backend/internal/speech"
 	"offerpilot/backend/internal/webcrawler"
@@ -51,47 +52,54 @@ type ResumeMatcher interface {
 	Match(context.Context, jobmatch.Request) (jobmatch.Result, error)
 }
 
+type ResumeDiagnostician interface {
+	Diagnose(context.Context, resumediagnosis.Request) (resumediagnosis.Result, error)
+}
+
 type Config struct {
-	Version             string
-	APIKey              string
-	RequireAuth         bool
-	AllowedOrigins      []string
-	MaxJSONBodyBytes    int64
-	MaxInterviewBytes   int64
-	MaxAudioBodyBytes   int64
-	MaxMessageChars     int
-	MaxTTSTextChars     int
-	MaxURLChars         int
-	ReadHeaderTimeout   time.Duration
-	IdleTimeout         time.Duration
-	InterviewRunTimeout time.Duration
-	KnowledgeEntries    int
-	ModelConfigured     bool
-	SpeechConfigured    bool
+	Version                 string
+	APIKey                  string
+	RequireAuth             bool
+	AllowedOrigins          []string
+	MaxJSONBodyBytes        int64
+	MaxInterviewBytes       int64
+	MaxAudioBodyBytes       int64
+	MaxResumeDiagnosisBytes int64
+	MaxMessageChars         int
+	MaxTTSTextChars         int
+	MaxURLChars             int
+	ReadHeaderTimeout       time.Duration
+	IdleTimeout             time.Duration
+	InterviewRunTimeout     time.Duration
+	KnowledgeEntries        int
+	ModelConfigured         bool
+	SpeechConfigured        bool
 }
 
 type Dependencies struct {
-	Interview InterviewService
-	Chat      ChatClient
-	Speech    SpeechClient
-	Crawler   WebCrawler
-	Matcher   ResumeMatcher
-	Sessions  *session.Store
-	Memory    *session.Memory
-	Logger    *slog.Logger
+	Interview           InterviewService
+	Chat                ChatClient
+	Speech              SpeechClient
+	Crawler             WebCrawler
+	Matcher             ResumeMatcher
+	ResumeDiagnostician ResumeDiagnostician
+	Sessions            *session.Store
+	Memory              *session.Memory
+	Logger              *slog.Logger
 }
 
 type Server struct {
-	config    Config
-	interview InterviewService
-	chat      ChatClient
-	speech    SpeechClient
-	crawler   WebCrawler
-	matcher   ResumeMatcher
-	sessions  *session.Store
-	memory    *session.Memory
-	logger    *slog.Logger
-	handler   http.Handler
+	config              Config
+	interview           InterviewService
+	chat                ChatClient
+	speech              SpeechClient
+	crawler             WebCrawler
+	matcher             ResumeMatcher
+	resumeDiagnostician ResumeDiagnostician
+	sessions            *session.Store
+	memory              *session.Memory
+	logger              *slog.Logger
+	handler             http.Handler
 }
 
 func New(config Config, dependencies Dependencies) (*Server, error) {
@@ -112,15 +120,16 @@ func New(config Config, dependencies Dependencies) (*Server, error) {
 		dependencies.Logger = slog.Default()
 	}
 	server := &Server{
-		config:    config,
-		interview: dependencies.Interview,
-		chat:      dependencies.Chat,
-		speech:    dependencies.Speech,
-		crawler:   dependencies.Crawler,
-		matcher:   dependencies.Matcher,
-		sessions:  dependencies.Sessions,
-		memory:    dependencies.Memory,
-		logger:    dependencies.Logger,
+		config:              config,
+		interview:           dependencies.Interview,
+		chat:                dependencies.Chat,
+		speech:              dependencies.Speech,
+		crawler:             dependencies.Crawler,
+		matcher:             dependencies.Matcher,
+		resumeDiagnostician: dependencies.ResumeDiagnostician,
+		sessions:            dependencies.Sessions,
+		memory:              dependencies.Memory,
+		logger:              dependencies.Logger,
 	}
 
 	mux := http.NewServeMux()
@@ -141,6 +150,8 @@ func New(config Config, dependencies Dependencies) (*Server, error) {
 	mux.HandleFunc("POST /api/v1/crawl", server.requireAuth(server.handleCrawl))
 	mux.HandleFunc("POST /api/match", server.requireAuth(server.handleMatch))
 	mux.HandleFunc("POST /api/v1/match", server.requireAuth(server.handleMatch))
+	mux.HandleFunc("POST /api/resume/diagnose", server.requireAuth(server.handleResumeDiagnosis))
+	mux.HandleFunc("POST /api/v1/resume/diagnose", server.requireAuth(server.handleResumeDiagnosis))
 	server.handler = server.withMiddleware(mux)
 	return server, nil
 }
@@ -168,6 +179,9 @@ func withDefaults(config Config) Config {
 	}
 	if config.MaxAudioBodyBytes <= 0 {
 		config.MaxAudioBodyBytes = 25 << 20
+	}
+	if config.MaxResumeDiagnosisBytes <= 0 {
+		config.MaxResumeDiagnosisBytes = 12 << 20
 	}
 	if config.MaxMessageChars <= 0 {
 		config.MaxMessageChars = 20000
@@ -296,18 +310,19 @@ func (s *Server) healthPayload(status string) map[string]any {
 		harnessState = "not_ready"
 	}
 	return map[string]any{
-		"status":            status,
-		"service":           "offerpilot-go",
-		"version":           s.config.Version,
-		"live":              true,
-		"ready":             s.config.ModelConfigured,
-		"readiness":         harnessState,
-		"harness":           harnessState,
-		"modelConfigured":   s.config.ModelConfigured,
-		"speechConfigured":  s.config.SpeechConfigured,
-		"crawlerConfigured": s.crawler != nil,
-		"matcherConfigured": s.matcher != nil,
-		"knowledgeEntries":  s.config.KnowledgeEntries,
+		"status":                        status,
+		"service":                       "offerpilot-go",
+		"version":                       s.config.Version,
+		"live":                          true,
+		"ready":                         s.config.ModelConfigured,
+		"readiness":                     harnessState,
+		"harness":                       harnessState,
+		"modelConfigured":               s.config.ModelConfigured,
+		"speechConfigured":              s.config.SpeechConfigured,
+		"crawlerConfigured":             s.crawler != nil,
+		"matcherConfigured":             s.matcher != nil,
+		"resumeDiagnosticianConfigured": s.resumeDiagnostician != nil,
+		"knowledgeEntries":              s.config.KnowledgeEntries,
 	}
 }
 

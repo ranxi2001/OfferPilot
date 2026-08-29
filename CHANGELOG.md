@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.4.1] - 2026-08-29
+
+This release replaces the rule-based resume diagnosis with a real multimodal
+Harness Agent that evaluates both resume content and PDF layout.
+
+### Added
+
+- Add the multimodal `resume_diagnostician` Harness Agent, combining extracted
+  resume text with up to three rendered PDF page images for evidence-grounded
+  content and layout diagnosis.
+- Add authenticated `POST /api/v1/resume/diagnose` with bounded image and body
+  limits, plus structured vision support in the OpenAI-compatible LLM boundary.
+
+### Fixed
+
+- Preserve PDF section and bullet line breaks instead of flattening an entire
+  resume into one paragraph.
+- Replace the Next.js rule-based resume diagnosis and generic template result
+  with semantic sections, cited evidence, concrete issues, suggestions, and
+  directly usable rewrites.
+
+### Upgrade
+
+- No database migration is required.
+- Run `npm --prefix web install` to install the native canvas runtime used to
+  render PDF pages, then restart both the Go API and Next.js Web service.
+
 ## [0.4.0] - 2026-08-29
 
 This release replaces mechanical JD matching and static URL scraping with

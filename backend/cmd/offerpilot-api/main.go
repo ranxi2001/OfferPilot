@@ -22,6 +22,7 @@ import (
 	"offerpilot/backend/internal/jobmatch"
 	"offerpilot/backend/internal/knowledge"
 	"offerpilot/backend/internal/llm"
+	"offerpilot/backend/internal/resumediagnosis"
 	"offerpilot/backend/internal/session"
 	"offerpilot/backend/internal/speech"
 	"offerpilot/backend/internal/webcrawler"
@@ -63,6 +64,7 @@ func main() {
 	var chatClient httpapi.ChatClient
 	var crawlerAgent *webcrawler.Agent
 	var matcherAgent *jobmatch.Agent
+	var resumeDiagnosticianAgent *resumediagnosis.Agent
 	modelConfigured := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != ""
 	if modelConfigured {
 		modelClient, modelErr := llm.NewFromEnv()
@@ -104,6 +106,12 @@ func main() {
 		if err != nil {
 			fatal("register resume matcher agent", err)
 		}
+		resumeDiagnosticianAgent, err = resumediagnosis.NewAgent(runtime, resumediagnosis.AgentOptions{
+			Timeout: durationEnv("OFFERPILOT_RESUME_DIAGNOSTICIAN_TIMEOUT", 120*time.Second),
+		})
+		if err != nil {
+			fatal("register resume diagnostician agent", err)
+		}
 		chatClient, err = chat.New(chat.Config{
 			APIKey:    os.Getenv("OPENAI_API_KEY"),
 			BaseURL:   envOr("OPENAI_BASE_URL", "https://api.openai.com/v1"),
@@ -142,28 +150,30 @@ func main() {
 	})
 	authRequired := strings.EqualFold(os.Getenv("NODE_ENV"), "production") || boolEnv("OFFERPILOT_REQUIRE_AUTH", false)
 	api, err := httpapi.New(httpapi.Config{
-		Version:           config.Version,
-		APIKey:            os.Getenv("OFFERPILOT_API_KEY"),
-		RequireAuth:       authRequired,
-		AllowedOrigins:    csvEnv("OFFERPILOT_ALLOWED_ORIGINS", []string{"http://localhost:3000", "http://127.0.0.1:3000"}),
-		MaxJSONBodyBytes:  int64(intEnv("OFFERPILOT_MAX_JSON_BODY_BYTES", 256<<10)),
-		MaxInterviewBytes: int64(intEnv("OFFERPILOT_MAX_INTERVIEW_BODY_BYTES", 2<<20)),
-		MaxAudioBodyBytes: int64(intEnv("OFFERPILOT_MAX_AUDIO_BODY_BYTES", 25<<20)),
-		MaxMessageChars:   intEnv("OFFERPILOT_MAX_MESSAGE_CHARS", 20000),
-		MaxTTSTextChars:   intEnv("OFFERPILOT_MAX_TTS_TEXT_CHARS", 5000),
-		MaxURLChars:       intEnv("OFFERPILOT_MAX_URL_CHARS", 4096),
-		KnowledgeEntries:  index.Len(),
-		ModelConfigured:   modelConfigured,
-		SpeechConfigured:  speechConfigured,
+		Version:                 config.Version,
+		APIKey:                  os.Getenv("OFFERPILOT_API_KEY"),
+		RequireAuth:             authRequired,
+		AllowedOrigins:          csvEnv("OFFERPILOT_ALLOWED_ORIGINS", []string{"http://localhost:3000", "http://127.0.0.1:3000"}),
+		MaxJSONBodyBytes:        int64(intEnv("OFFERPILOT_MAX_JSON_BODY_BYTES", 256<<10)),
+		MaxInterviewBytes:       int64(intEnv("OFFERPILOT_MAX_INTERVIEW_BODY_BYTES", 2<<20)),
+		MaxAudioBodyBytes:       int64(intEnv("OFFERPILOT_MAX_AUDIO_BODY_BYTES", 25<<20)),
+		MaxResumeDiagnosisBytes: int64(intEnv("OFFERPILOT_MAX_RESUME_DIAGNOSIS_BODY_BYTES", 12<<20)),
+		MaxMessageChars:         intEnv("OFFERPILOT_MAX_MESSAGE_CHARS", 20000),
+		MaxTTSTextChars:         intEnv("OFFERPILOT_MAX_TTS_TEXT_CHARS", 5000),
+		MaxURLChars:             intEnv("OFFERPILOT_MAX_URL_CHARS", 4096),
+		KnowledgeEntries:        index.Len(),
+		ModelConfigured:         modelConfigured,
+		SpeechConfigured:        speechConfigured,
 	}, httpapi.Dependencies{
-		Interview: interviewService,
-		Chat:      chatClient,
-		Speech:    speechClient,
-		Crawler:   crawlerAgent,
-		Matcher:   matcherAgent,
-		Sessions:  session.NewStore(),
-		Memory:    session.NewMemory(40),
-		Logger:    logger,
+		Interview:           interviewService,
+		Chat:                chatClient,
+		Speech:              speechClient,
+		Crawler:             crawlerAgent,
+		Matcher:             matcherAgent,
+		ResumeDiagnostician: resumeDiagnosticianAgent,
+		Sessions:            session.NewStore(),
+		Memory:              session.NewMemory(40),
+		Logger:              logger,
 	})
 	if err != nil {
 		fatal("create HTTP API", err)
@@ -183,6 +193,7 @@ func main() {
 			"speech_configured", speechConfigured,
 			"crawler_configured", crawlerAgent != nil,
 			"matcher_configured", matcherAgent != nil,
+			"resume_diagnostician_configured", resumeDiagnosticianAgent != nil,
 			"auth_required", authRequired,
 		)
 		if listenErr := server.ListenAndServe(); listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {

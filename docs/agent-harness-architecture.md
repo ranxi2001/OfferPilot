@@ -28,7 +28,7 @@ OfferPilot 的模拟面试不应再由“固定题单 + 正则缺陷检查”驱
 | 能力 | 状态 | 当前实现 |
 |---|---|---|
 | Go 面试领域后端 | 已实现 | `backend/cmd/offerpilot-api`；`POST /api/interview` 提供 start / answer / report |
-| Typed Harness Roles | 已实现 | Planner、Interviewer、Assessor、Reporter、Resume Matcher、Web Crawler；结构化 JSON、Function Tool 白名单、有界 Agent Loop、超时、有界并发、trace |
+| Typed Harness Roles | 已实现 | Planner、Interviewer、Assessor、Reporter、Resume Matcher、Resume Diagnostician、Web Crawler；结构化 JSON、多模态输入、Function Tool 白名单、有界 Agent Loop、超时、有界并发、trace |
 | 可观察执行轨迹 | 已实现 | `POST /api/interview/stream` 使用 NDJSON 实时输出安全步骤；浏览器断开不取消有界后台 run，Web 保留各轮排队、执行、完成/失败和耗时 |
 | 自适应追问 | 已实现 | Assessor 语义评分驱动 prerequisite / follow-up / advance；知识与项目使用不同追问轴 |
 | JD + 简历输入 | 已实现 | Web BFF 负责 PDF/DOCX/Markdown/TXT/TEX；URL 优先走 Go Provider/JSON-LD 快路径，未知动态站点进入 `web_crawler` 的受限 Function Tool Loop；Go 负责 Profile、Coverage 和 EvidenceRef |
